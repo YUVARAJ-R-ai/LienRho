@@ -27,17 +27,11 @@ LIENRHO plugs into the accounting software an MSME already uses — TallyPrime f
 
 It is **not** an accounting app, **not** a bookkeeping/invoicing tool, and **not** a generic finance chatbot. Tally/Zoho remain the system of record. LIENRHO only owns *derived* data: predictions, forecasts, rule-engine flags, agent findings, decisions, actions, and audit logs.
 
-> **Status: early build.** The backend skeleton, canonical data model, database layer, and all four frontend screens (running on mock data) are in place. ML, rules engine, connectors, and agents are not built yet — see [Project status](#project-status).
+> **Status: working vertical slice.** The pipeline runs end to end — synthetic portfolio → XGBoost delay predictions → deterministic MSMED/TReDS checks → probabilistic cash forecast → ranked action queue → UI, every recommendation carrying its audit trail. The LangGraph agents, the Tally connector, and the outreach/dossier generators are not built yet — see [Project status](#project-status).
 
 ## Quickstart
 
-**Frontend** — runs standalone on mock data, no backend needed:
-
-```bash
-cd frontend
-npm install
-npm run dev          # http://localhost:3000
-```
+Start the backend first — the frontend reads from it.
 
 **Backend** — needs Docker for Postgres:
 
@@ -51,6 +45,14 @@ uv run uvicorn app.main:app --reload   # http://localhost:8000
 ```
 
 The API degrades to rule-only recommendations if no trained model artifact exists, so it still starts before you train. `./run-dev.sh start|stop|status` runs it detached at low priority if you'd rather not hold a terminal.
+
+**Frontend:**
+
+```bash
+cd frontend
+npm install
+npm run dev          # http://localhost:3000
+```
 
 ## The problem
 
