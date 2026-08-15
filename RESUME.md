@@ -8,7 +8,7 @@ Start-of-session checklist. Everything runs from `~/Coding/Projects/LienRho`.
 cd ~/Coding/Projects/LienRho
 git log --oneline origin/main..HEAD     # see what's unpushed
 git push origin main
-git push --tags                          # checkpoint tags cp0-pipeline, cp1-investigator
+git push --tags                          # tags: cp0-pipeline, cp1-investigator, cp2-tool-boundary
 ```
 
 ## 2. Bring the stack up
@@ -34,7 +34,7 @@ Open **http://localhost:3000**. The backend must be running — the screens read
 
 ```bash
 cd ~/Coding/Projects/LienRho/backend
-uv run pytest -q                 # expect 142 passed
+uv run pytest -q                 # expect 157 passed
 uv run ruff check .
 
 cd ../frontend
@@ -64,7 +64,8 @@ The four showcase invoices, in the order that tells the story best:
 | 3 | `/invoice/INV-1042` | Customer wrote *"we will settle fully"* — system escalates anyway, 3 prior promises unkept |
 | 4 | `/invoice/INV-1051` | Statutory threshold crossed **but** a quality dispute is open, so it declines to act |
 | 5 | `/invoice/INV-1038` | TReDS-eligible, financed to close the shortfall |
-| 6 | `/forecast` | Shortfall date + the invoices driving it |
+| 6 | `/invoice/INV-1042` → audit trail | `TOOL` entries: `calculate_interest() → 5840.07`. *"The agent chose to escalate — but it never calculated that ₹5,840. It called this function."* |
+| 7 | `/forecast` | Shortfall date + the invoices driving it |
 
 ## Where things stand
 
@@ -72,9 +73,20 @@ The four showcase invoices, in the order that tells the story best:
 - What's built vs. specified: [`docs/implementation-status.md`](docs/implementation-status.md)
 - Model metrics and limits: [`docs/model-card.md`](docs/model-card.md)
 
-**Blocking decision:** `OQ-02` — which LLM provider, and is a key available? The
-Investigator ships deterministically so nothing is stalled today, but the
-LLM Strategy agent (#13) needs it.
+**Blocking decision:** `OQ-02` — which LLM provider, and is a key available?
+Both agents ship deterministically behind the same interfaces, so nothing is
+stalled today. Swapping either to an LLM is one class (`LLMInvestigator`,
+`LLMStrategist`) — the tool boundary, the recording, and the trace are already
+what the model will use.
+
+**Say it accurately in the demo:** the tool-call trace is real and the
+deterministic boundary genuinely holds — but the *selection* is rule-based right
+now, not model-driven. "Here's the boundary the agent works through" is true;
+"an LLM chose this" is not, yet.
+
+**Next up — CP3** (`docs/demo-checkpoints.md`): draft reminder, mock TReDS
+submission, MSMED dossier (#15). Fully deterministic, no API key needed, and it
+pays off the approval gate that's already built.
 
 ## Gotchas
 
