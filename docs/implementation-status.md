@@ -14,8 +14,8 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 | FR-004 | Forecast 30-day cash position | ✅ | `ml_core/forecast.py` | Probabilistic and conditioned on invoices still being unpaid (ADR-005) |
 | FR-005 | MSMED statutory threshold check | ✅ | `rules_engine/msmed.py` | Deterministic. 44/45-day boundary tested. Counts from the §15 appointed day |
 | FR-006 | TReDS eligibility | ✅ | `rules_engine/treds.py` | Deterministic, returns every failing condition rather than the first |
-| FR-007 | Investigate customer communications | ⬜ | — | **Blocked on `OQ-02`** (LLM provider). No communication data exists yet either (#12) |
-| FR-008 | Recommend a recovery strategy | 🟡 | `decision_engine/engine.py` | Track A/B/C implemented deterministically; the LangGraph agent (#13) will layer over it with this as fallback |
+| FR-007 | Investigate customer communications | ✅ | `agents/investigator.py`, `data/communications.py` | Deterministic implementation runs today; `LLMInvestigator` is stubbed behind the same interface and unblocks on `OQ-02`. Findings include promise *credibility*, not just presence |
+| FR-008 | Recommend a recovery strategy | 🟡 | `decision_engine/engine.py` | Track A/B/C implemented deterministically and now weighs promise credibility and disputes; the LangGraph agent (#13) will layer over it with this as fallback |
 | FR-009 | Prioritize into a daily action queue | ✅ | `decision_engine/engine.py`, `api/routes.py` | Tiered, ordered by descending value within tier |
 | FR-010 | Human approval before sensitive actions | 🟡 | `decision_engine/engine.py`, `ApprovalPanel.tsx` | Gate enforced by `assert_executable()`; UI state is local-only and resets on restart |
 | FR-011 | Generate draft outreach messages | ⬜ | — | #15 |
@@ -44,22 +44,32 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 | ASM-01 | Untested — Tally gateway spike not attempted. Recommended cut for this build |
 | ASM-02 | Holding — synthetic data in use; see ADR-004 for how leakage was avoided |
 | ASM-03 | Holding — outreach will be drafted-in-UI |
-| ASM-04 | **Unresolved and blocking** — no LLM provider chosen or key available |
+| ASM-04 | **Unresolved** — no LLM provider chosen. No longer blocks FR-007: the rule-based investigator ships behind the same interface. Still blocks #13 |
 | ASM-05 | Holding — `org_id` present on every table; no multi-org UI |
 | OQ-01 | Defaulting to drafted-in-UI |
-| OQ-02 | **Open and blocking** all agent work |
+| OQ-02 | **Open.** No longer blocks FR-007 (deterministic fallback). Still blocks the LLM Strategy agent (#13) |
 | OQ-03 | Schema field only, no multi-org UI |
 | OQ-04 | Open — no baseline measured |
 
 ## What runs today
 
 ```
-synthetic portfolio (30 invoices, ₹42.6L)
+synthetic portfolio (30 invoices, ₹42.6L) + communication threads
   → XGBoost delay predictions (4 buckets, explained)
+  → Receivables Investigator: promises, disputes, promise credibility
   → deterministic MSMED + TReDS checks
   → probabilistic 30-day cash forecast + shortfall contributors
   → ranked action queue with approval gate and audit trail
   → four Next.js screens reading the live API
 ```
 
-Backend: 118 tests passing, ruff clean. Frontend: typechecks, lints, builds.
+Backend: 142 tests passing, ruff clean. Frontend: typechecks, lints, builds.
+
+### The four showcase cases
+
+| Invoice | Customer | Outcome | What it demonstrates |
+|---|---|---|---|
+| INV-1023 | ABC Logistics | FOLLOW_UP | A credible promise, with the date extracted from a WhatsApp thread |
+| INV-1038 | Global Retail | FINANCE | TReDS-eligible and able to close the projected shortfall |
+| INV-1042 | Apex Trading | ESCALATE | A promise the system *refuses to believe* — three prior promises, none kept |
+| INV-1051 | Sunrise Textiles | FOLLOW_UP | The system declining to act: statutory threshold crossed, but a quality dispute must be resolved by a human first |

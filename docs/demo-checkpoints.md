@@ -10,7 +10,7 @@ Two rules make this work:
 | CP | New sentence in the pitch | Cutoff | If it slips |
 |---|---|---|---|
 | 0 | "Tally says you're owed ₹42.6L. We say what to do today." | ✅ done | — |
-| 1 | "It reads the conversations too." | Sun midday | Demo CP0 |
+| 1 | "It reads the conversations too." | ✅ done | — |
 | 2 | "The LLM picks strategy but never touches the numbers." | Sun night | Demo CP1 |
 | 3 | "And here's the actual dossier — after you approve." | Mon afternoon | Demo CP2 |
 | 4 | "Validated against 10 years of real invoices." | Mon 6pm hard stop | Skip entirely |
@@ -24,9 +24,15 @@ Two rules make this work:
 
 **What it proves:** the pipeline is real. ML predictions, deterministic statutory checks, a probabilistic forecast, and a ranked queue, each traceable to what produced it.
 
-## CP1 — Communication intelligence
+## CP1 — Communication intelligence ✅
 
-**Delivers:** synthetic WhatsApp/email threads + the Receivables Investigator agent (FR-007, issue #12).
+**Status:** done. Tag `cp1-investigator`.
+
+**Delivers:** synthetic WhatsApp/email threads + the Receivables Investigator (FR-007, issue #12), running deterministically so it did not wait on `OQ-02`.
+
+**The strongest moment:** open INV-1042. The customer wrote *"we will settle fully"* — and the system escalates anyway, because they have promised three times and paid none. The literal text of a credible promise and a worthless one are nearly identical; showing the system tell them apart is the clearest argument that reading the threads is worth anything.
+
+**Second strongest:** INV-1051. Statutory threshold crossed and TReDS-eligible on paper, but a quality dispute is on file, so the system *declines to escalate or finance*. A system that only ever acts is easy to build; one that knows when not to is the harder claim.
 
 **Click path:** open INV-1023 → the agent found "we'll clear this by Friday" in a thread nobody logged → recommendation softens to a relationship-preserving follow-up.
 
