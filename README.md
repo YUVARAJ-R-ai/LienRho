@@ -1,14 +1,53 @@
-# LIENRHO
+<div align="center">
+
+# 🧾 LIENRHO
+
+### The working-capital decision layer for Indian MSMEs
 
 **When invoices wait, cash shouldn't.**
+Your accounting system says *what you're owed*.
+LIENRHO says *what to do about it today*.
 
-LIENRHO is a working-capital decision layer for Indian MSMEs (Micro, Small & Medium Enterprises). It plugs into the accounting software an MSME already uses — TallyPrime first, Zoho Books second — and turns raw receivables data into a single daily answer:
+![python](https://img.shields.io/badge/python-3.12+-3776AB?logo=python&logoColor=white)
+![next.js](https://img.shields.io/badge/next.js-16-000000?logo=nextdotjs&logoColor=white)
+![fastapi](https://img.shields.io/badge/fastapi-async-009688?logo=fastapi&logoColor=white)
+![postgres](https://img.shields.io/badge/postgres-16-4169E1?logo=postgresql&logoColor=white)
+![ml](https://img.shields.io/badge/ml-XGBoost-EB4C42)
+![agents](https://img.shields.io/badge/agents-LangGraph-1C3C3C)
+
+[Quickstart](#quickstart) · [The Problem](#the-problem) · [How It Works](#what-lienrho-does) · [Architecture](#architecture) · [Scope](#scope) · [Docs](#requirements--design-docs)
+
+</div>
+
+---
+
+LIENRHO plugs into the accounting software an MSME already uses — TallyPrime first, Zoho Books second — and turns raw receivables data into a single daily answer:
 
 > Given everything this business is owed, its expected cash position, customer behavior, and available financial options — what should the business do today?
 
 It is **not** an accounting app, **not** a bookkeeping/invoicing tool, and **not** a generic finance chatbot. Tally/Zoho remain the system of record. LIENRHO only owns *derived* data: predictions, forecasts, rule-engine flags, agent findings, decisions, actions, and audit logs.
 
-> **Status: pre-code / planning phase.** This repo currently holds the product spec, architecture, and research that back the build — see [Project status](#project-status) below. There is no application code yet.
+> **Status: early build.** The backend skeleton, canonical data model, database layer, and all four frontend screens (running on mock data) are in place. ML, rules engine, connectors, and agents are not built yet — see [Project status](#project-status).
+
+## Quickstart
+
+**Frontend** — runs standalone on mock data, no backend needed:
+
+```bash
+cd frontend
+npm install
+npm run dev          # http://localhost:3000
+```
+
+**Backend** — needs Docker for Postgres:
+
+```bash
+cd backend
+docker compose up -d          # starts Postgres on :5432
+uv sync                       # installs dependencies
+uv run alembic upgrade head   # creates the schema
+uv run uvicorn app.main:app --reload   # http://localhost:8000
+```
 
 ## The problem
 
@@ -90,15 +129,32 @@ Full detail, acceptance criteria, and rationale: [`docs/inception.md`](docs/ince
 
 ```
 .
-├── README.md                                   — this file
-├── prd.md                                       — full Product Requirements Document
+├── backend/                     — FastAPI service (single deployable)
+│   ├── app/
+│   │   ├── connectors/          — AccountingConnector interface; Tally/Zoho adapters
+│   │   ├── canonical/           — Pydantic canonical data model
+│   │   ├── ml_core/             — XGBoost payment-delay model, cash forecasting
+│   │   ├── rules_engine/        — MSMED + TReDS checks, deterministic only
+│   │   ├── agents/              — LangGraph agents + tool-call schemas
+│   │   ├── decision_engine/     — prioritization + approval gate
+│   │   ├── outreach/            — message drafts, TReDS mock, dossier
+│   │   ├── api/                 — FastAPI routers
+│   │   └── db/                  — ORM models, migrations, org scoping
+│   ├── migrations/              — Alembic
+│   └── docker-compose.yml       — local Postgres
+├── frontend/                    — Next.js App Router + shadcn/ui
+│   └── src/
+│       ├── app/                 — action queue, invoice, forecast, approvals routes
+│       ├── components/          — shared UI
+│       └── lib/                 — types, formatters, mock data
 ├── docs/
-│   ├── inception.md                             — formal inception doc: stakeholders, scope,
-│   │                                               constraints, FRs/NFRs, architecture, ADRs, open questions
-│   ├── _id-registry.md                          — append-only ledger of every STK/FR/NFR/CON/ADR/... ID
-│   └── presentation/                            — pitch deck (.pptx)
-├── indian_agentic_finance_hackathon_research.md — market research behind the product choice
-└── .claude/skills/lienrho-context/SKILL.md      — domain/architecture context for AI-assisted development
+│   ├── inception.md             — stakeholders, scope, constraints, FRs/NFRs, ADRs, open questions
+│   ├── framework-plan.md        — repo layout + build-phase ordering
+│   ├── _id-registry.md          — append-only ledger of every STK/FR/NFR/CON/ADR/... ID
+│   └── presentation/            — pitch deck (.pptx)
+├── prd.md                       — full Product Requirements Document
+├── CONTRIBUTING.md              — workflow, module ownership, non-negotiable rules
+└── indian_agentic_finance_hackathon_research.md — research behind the product choice
 ```
 
 ## Requirements & design docs
@@ -146,7 +202,22 @@ These affect design and are not yet resolved (see `docs/inception.md` §8 for de
 
 ## Project status
 
-This repo currently contains the **inception and requirements phase** output only — no application code. The next step is scaffolding the modular-monolith skeleton described above (FastAPI service + module boundaries, Next.js frontend, Postgres schema) so each role can start building against a shared interface. Track progress via the repo's Issues/Project board.
+| Area | Status |
+|---|---|
+| Backend skeleton + module boundaries | ✅ Done |
+| Canonical data model (Pydantic + ORM) | ✅ Done |
+| Postgres schema, migrations, org scoping | ✅ Done |
+| Frontend: action queue, investigation, forecast, approvals | ✅ Done (on mock data) |
+| Tally connector | ⬜ Not started |
+| XGBoost delay model + explainability | ⬜ Not started |
+| Cash-flow forecast | ⬜ Not started |
+| MSMED + TReDS rules engines | ⬜ Not started |
+| LangGraph agents | ⬜ Not started |
+| Decision engine + approval gate (backend) | ⬜ Not started |
+| Outreach, mock TReDS, dossier | ⬜ Not started |
+| Audit trail (backend) | ⬜ Not started |
+
+Frontend screens currently read from `frontend/src/lib/mockData.ts`; wiring them to real endpoints happens as each backend module lands. Build order and phase dependencies: [`docs/framework-plan.md`](docs/framework-plan.md). Track work via the repo's Issues and project board.
 
 ## License
 
