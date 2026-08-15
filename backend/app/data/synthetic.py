@@ -1,0 +1,300 @@
+"""Synthetic demo dataset generator (ASM-02).
+
+No real MSME transaction history is available for this build, so the ML model
+trains on generated data. Two things matter for that to be honest:
+
+1. The portfolio has to hit the reference scenario in prd.md §37 — 30 invoices,
+   Rs 42.6L total, and the three hand-built cases A/B/C that the demo narrates.
+2. Payment behaviour has to be *learnable*. If delays were uniformly random the
+   model would have nothing to find and its metrics would be meaningless. So
+   each customer gets a payment profile, and actual delays are drawn around that
+   profile — the signal the model is meant to recover.
+
+Generation is seeded, so the dataset is identical across runs and machines.
+"""
+
+from __future__ import annotations
+
+import random
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+from decimal import Decimal
+
+from app.canonical.models import (
+    CanonicalCustomer,
+    CanonicalInvoice,
+    CanonicalPayment,
+    PaymentStatus,
+)
+
+DEFAULT_SEED = 727
+DEFAULT_ORG_ID = "ORG-DEMO"
+
+# The demo is narrated as of this date; "days overdue" figures are relative to it.
+AS_OF = date(2026, 8, 15)
+
+# prd.md §37 fixes the portfolio total at Rs 42.6L across 30 invoices.
+TARGET_TOTAL = Decimal(4260000)
+TARGET_INVOICE_COUNT = 30
+
+
+@dataclass(frozen=True)
+class CustomerProfile:
+    """A customer's payment behaviour — the signal the ML model should learn."""
+
+    customer_id: str
+    name: str
+    industry: str
+    customer_type: str
+    # Mean/spread of how many days past due this customer actually pays.
+    mean_delay_days: float
+    delay_spread_days: float
+    relationship_days: int
+    participates_in_treds: bool
+    # Some customers reply to reminders; others go quiet. Used by the agent demo.
+    responsive: bool = True
+
+
+CUSTOMER_PROFILES: list[CustomerProfile] = [
+    CustomerProfile(
+        "CUST-001", "ABC Logistics", "Logistics", "Enterprise",
+        mean_delay_days=14, delay_spread_days=6, relationship_days=1460,
+        participates_in_treds=False,
+    ),
+    CustomerProfile(
+        "CUST-002", "Global Retail", "Retail", "Enterprise",
+        mean_delay_days=32, delay_spread_days=9, relationship_days=900,
+        participates_in_treds=True,
+    ),
+    CustomerProfile(
+        "CUST-003", "Bharat Engineering", "Manufacturing", "SME",
+        mean_delay_days=8, delay_spread_days=4, relationship_days=1100,
+        participates_in_treds=False,
+    ),
+    CustomerProfile(
+        "CUST-004", "Apex Trading", "Trading", "SME",
+        mean_delay_days=48, delay_spread_days=14, relationship_days=520,
+        participates_in_treds=False, responsive=False,
+    ),
+    CustomerProfile(
+        "CUST-005", "Nova Components", "Manufacturing", "SME",
+        mean_delay_days=11, delay_spread_days=5, relationship_days=760,
+        participates_in_treds=True,
+    ),
+    CustomerProfile(
+        "CUST-006", "Meridian Foods", "FMCG", "Enterprise",
+        mean_delay_days=19, delay_spread_days=7, relationship_days=640,
+        participates_in_treds=True,
+    ),
+    CustomerProfile(
+        "CUST-007", "Sunrise Textiles", "Textiles", "SME",
+        mean_delay_days=27, delay_spread_days=10, relationship_days=430,
+        participates_in_treds=False,
+    ),
+    CustomerProfile(
+        "CUST-008", "Kaveri Chemicals", "Chemicals", "SME",
+        mean_delay_days=5, delay_spread_days=3, relationship_days=1580,
+        participates_in_treds=False,
+    ),
+]
+
+
+@dataclass
+class GeneratedDataset:
+    customers: list[CanonicalCustomer]
+    invoices: list[CanonicalInvoice]
+    payments: list[CanonicalPayment] = field(default_factory=list)
+
+    @property
+    def total_outstanding(self) -> Decimal:
+        return sum(
+            (i.invoice_amount for i in self.invoices if i.payment_status != PaymentStatus.PAID),
+            Decimal(0),
+        )
+
+
+# The three cases the demo narrative walks through (prd.md §37). These are fixed
+# rather than generated, because the demo depends on their exact shape.
+SHOWCASE_INVOICES = [
+    # Case A — relationship-preserving follow-up.
+    {
+        "invoice_id": "INV-1023",
+        "customer_id": "CUST-001",
+        "amount": Decimal(480000),
+        "days_overdue": 17,
+    },
+    # Case B — finance via TReDS.
+    {
+        "invoice_id": "INV-1038",
+        "customer_id": "CUST-002",
+        "amount": Decimal(320000),
+        "days_overdue": 26,
+    },
+    # Case C — statutory escalation.
+    {
+        "invoice_id": "INV-1042",
+        "customer_id": "CUST-004",
+        "amount": Decimal(210000),
+        "days_overdue": 52,
+    },
+]
+
+
+def generate_dataset(
+    *,
+    seed: int = DEFAULT_SEED,
+    org_id: str = DEFAULT_ORG_ID,
+    as_of: date = AS_OF,
+) -> GeneratedDataset:
+    """Build the full demo portfolio. Deterministic for a given seed."""
+    rng = random.Random(seed)
+
+    customers = [
+        CanonicalCustomer(
+            org_id=org_id,
+            customer_id=p.customer_id,
+            customer_name=p.name,
+            industry=p.industry,
+            customer_type=p.customer_type,
+            average_delay_days=p.mean_delay_days,
+            relationship_duration_days=p.relationship_days,
+            treds_status="PARTICIPANT" if p.participates_in_treds else "NON_PARTICIPANT",
+        )
+        for p in CUSTOMER_PROFILES
+    ]
+
+    invoices = [
+        _build_invoice(
+            org_id=org_id,
+            invoice_id=case["invoice_id"],
+            customer_id=case["customer_id"],
+            amount=case["amount"],
+            days_overdue=case["days_overdue"],
+            as_of=as_of,
+        )
+        for case in SHOWCASE_INVOICES
+    ]
+
+    remaining_count = TARGET_INVOICE_COUNT - len(invoices)
+    remaining_total = TARGET_TOTAL - sum(i.invoice_amount for i in invoices)
+    amounts = _split_amount(remaining_total, remaining_count, rng)
+
+    profiles_by_id = {p.customer_id: p for p in CUSTOMER_PROFILES}
+    for n, amount in enumerate(amounts, start=1):
+        profile = rng.choice(CUSTOMER_PROFILES)
+        # Age each invoice so the portfolio spans recent and long-overdue work.
+        days_overdue = max(
+            int(rng.gauss(profile.mean_delay_days, profile.delay_spread_days)),
+            -20,
+        )
+        invoices.append(
+            _build_invoice(
+                org_id=org_id,
+                invoice_id=f"INV-{1100 + n}",
+                customer_id=profile.customer_id,
+                amount=amount,
+                days_overdue=days_overdue,
+                as_of=as_of,
+            )
+        )
+
+    payments = _build_payment_history(
+        org_id=org_id, profiles=profiles_by_id, as_of=as_of, rng=rng
+    )
+
+    return GeneratedDataset(customers=customers, invoices=invoices, payments=payments)
+
+
+def _build_invoice(
+    *,
+    org_id: str,
+    invoice_id: str,
+    customer_id: str,
+    amount: Decimal,
+    days_overdue: int,
+    as_of: date,
+) -> CanonicalInvoice:
+    """Construct an invoice whose due date sits `days_overdue` before `as_of`.
+
+    Negative `days_overdue` means the invoice isn't due yet.
+    """
+    due_date = as_of - timedelta(days=days_overdue)
+    invoice_date = due_date - timedelta(days=30)
+    acceptance_date = invoice_date + timedelta(days=1)
+
+    status = PaymentStatus.OVERDUE if days_overdue > 0 else PaymentStatus.PENDING
+
+    return CanonicalInvoice(
+        org_id=org_id,
+        invoice_id=invoice_id,
+        customer_id=customer_id,
+        invoice_amount=amount,
+        invoice_date=invoice_date,
+        due_date=due_date,
+        acceptance_date=acceptance_date,
+        payment_status=status,
+        payment_date=None,
+    )
+
+
+def _build_payment_history(
+    *,
+    org_id: str,
+    profiles: dict[str, CustomerProfile],
+    as_of: date,
+    rng: random.Random,
+    invoices_per_customer: int = 8,
+) -> list[CanonicalPayment]:
+    """Settled invoices from the past year.
+
+    This is the model's training signal: each customer's historical delays
+    cluster around their profile, so a model can learn "this customer pays
+    late" rather than memorising invoice IDs.
+    """
+    payments: list[CanonicalPayment] = []
+    counter = 0
+
+    for profile in profiles.values():
+        for n in range(invoices_per_customer):
+            counter += 1
+            # Spread historical invoices back across roughly the last year.
+            due = as_of - timedelta(days=60 + n * 38 + rng.randint(0, 12))
+            delay = max(int(rng.gauss(profile.mean_delay_days, profile.delay_spread_days)), 0)
+            paid_on = due + timedelta(days=delay)
+
+            # Anything that would settle in the future hasn't happened yet.
+            if paid_on >= as_of:
+                continue
+
+            payments.append(
+                CanonicalPayment(
+                    org_id=org_id,
+                    invoice_id=f"INV-H{counter:04d}",
+                    customer_id=profile.customer_id,
+                    due_date=due,
+                    actual_payment_date=paid_on,
+                    days_delayed=delay,
+                    payment_amount=Decimal(rng.randrange(50_000, 500_000, 5_000)),
+                    payment_status=PaymentStatus.PAID,
+                )
+            )
+
+    return payments
+
+
+def _split_amount(total: Decimal, parts: int, rng: random.Random) -> list[Decimal]:
+    """Split `total` into `parts` invoice-sized amounts that sum exactly to it.
+
+    Weights are randomised so the portfolio has a realistic mix of large and
+    small invoices, then the final part absorbs the rounding remainder.
+    """
+    weights = [rng.uniform(0.4, 2.2) for _ in range(parts)]
+    weight_sum = sum(weights)
+
+    amounts: list[Decimal] = []
+    for w in weights[:-1]:
+        share = (total * Decimal(str(w / weight_sum))).quantize(Decimal(1000))
+        amounts.append(max(share, Decimal(25000)))
+
+    amounts.append(total - sum(amounts))
+    return amounts
