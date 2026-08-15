@@ -1,6 +1,8 @@
 # Inception — LIENRHO
 
-**Tier:** Lite &nbsp;|&nbsp; **Status:** Draft &nbsp;|&nbsp; **Created:** 2026-08-14
+**Tier:** Lite &nbsp;|&nbsp; **Status:** Living — implementation in progress &nbsp;|&nbsp; **Created:** 2026-08-14 &nbsp;|&nbsp; **Updated:** 2026-08-15
+
+> Implementation status per requirement: [`implementation-status.md`](implementation-status.md). Model metrics and limitations: [`model-card.md`](model-card.md). Demo sequencing: [`demo-checkpoints.md`](demo-checkpoints.md).
 
 ## 1. Problem
 
@@ -62,7 +64,7 @@
 | MSMED Act | Micro, Small and Medium Enterprises Development Act, 2006 — governs mandatory payment timelines to MSME suppliers and statutory interest on delay |
 | TReDS | Trade Receivables Discounting System — RBI-regulated platform for MSMEs to discount invoices to financiers for early payment |
 | Statutory escalation | Formal legal/regulatory path (e.g. MSME Samadhaan ODR) triggered when MSMED delay conditions are met |
-| Canonical Data Model | LIENRHO's internal normalized schema that every connector (Tally, Zoho, ERPNext...) maps into |
+| Canonical Data Model | LIENRHO's internal normalized schema that every connector (Tally, Zoho, ERPNext...) maps into. Payment history carries `customer_id` denormalized from the invoice, so per-customer delay features stay computable without joining through invoices that may have been archived |
 | Connector | Adapter implementing a common interface (`get_invoices`, `get_customers`, `get_payments`, `get_expenses`, `create_task`) against one accounting/ERP system |
 | Action Queue | The prioritized, ranked list of recommended actions (follow up / finance / escalate) — LIENRHO's primary UI surface |
 | Delay Bucket | XGBoost model's probability distribution across four buckets: 0–15, 16–30, 31–45, >45 days |
@@ -168,6 +170,7 @@ graph TB
 **Statement:** The system shall generate a 30-day rolling cash-flow forecast from current cash, expected inflows, and known upcoming expenses.
 **Trace to:** STK-01 · **Priority:** Must
 **Acceptance criteria:** Given current cash, expected inflows, and expenses, when the forecast runs, then the system reports the earliest date (if any) where projected cash falls below the cash threshold, and the shortfall magnitude at that date.
+**Implementation note (2026-08-15):** inflows are probabilistic, weighted by the delay model's prediction, and conditioned on each invoice still being unpaid — see ADR-005. Expenses are currently spread evenly across the horizon because the canonical model carries them only as monthly aggregates.
 
 ### FR-015 — Identify invoices contributing to a projected shortfall
 **Statement:** When FR-004's forecast crosses the cash threshold, the system shall list the specific invoices whose delayed or uncertain payment contributes to the shortfall, ranked by contribution.
@@ -178,6 +181,7 @@ graph TB
 **Statement:** For every invoice overdue ≥45 days with an eligible buyer, the system shall deterministically flag the invoice as a statutory concern, computed by a non-LLM rules function (CON-05).
 **Trace to:** STK-01, STK-04 · **Priority:** Must
 **Acceptance criteria:** Given an invoice at exactly 45 days overdue meeting buyer conditions, then `statutory_flag = true`; given 44 days overdue with the same conditions, then `statutory_flag = false` (boundary case).
+**Implementation note (2026-08-15):** overdue is counted from the MSMED §15 *appointed day*, not the invoice due date. The appointed day is the agreed credit period capped at 45 days from acceptance — a longer contractual term cannot extend it. Callers must pass the invoice's actual agreed credit period; omitting it silently grants every invoice the full statutory 45 days regardless of its terms.
 
 ### FR-006 — Evaluate TReDS financing eligibility
 **Statement:** For every open invoice, the system shall deterministically evaluate TReDS eligibility (invoice approved, buyer participates in TReDS, other eligibility conditions) and mark eligible invoices as financing opportunities.
@@ -193,6 +197,7 @@ graph TB
 **Statement:** The Recovery Strategy agent shall combine payment risk, cash urgency, statutory/TReDS eligibility, customer relationship signal, and communication evidence to recommend exactly one action — FOLLOW_UP, FINANCE, or ESCALATE — with a stated reason (PRD §498–552, Tracks A/B/C).
 **Trace to:** STK-01 · **Priority:** Must
 **Acceptance criteria:** Given inputs matching a Track A/B/C condition set, when the strategy runs, then the recommended action matches the corresponding track, and the output cites the specific deciding factors (e.g. "payment promise exists, no dispute, high-value customer").
+**Implementation note (2026-08-15):** Track B (finance) triggers on the business having a projected shortfall, not on this invoice causing it — see ADR-006. A detected dispute suppresses both escalation and financing until a human resolves it. Currently implemented deterministically in `decision_engine/engine.py`; the LangGraph agent (issue #13) will layer over it with this as the fallback path.
 
 ### FR-009 — Prioritize actions into a daily action queue
 **Statement:** The system shall rank all recommended actions into priority tiers (Critical / High / Follow Up, per PRD §614–640) using payment probability, cash-flow urgency, invoice value, days overdue, legal urgency, and financing availability, and display them as a single ranked queue.
@@ -347,6 +352,21 @@ graph TB
 **Context:** The PRD already specifies Next.js/React, FastAPI, PostgreSQL, XGBoost/scikit-learn, LangGraph, and Pydantic (§46, §808–904). Software-inception's default posture is to still validate a pre-stated stack against NFRs before locking it in; the team explicitly chose to skip that re-validation this round (this session's framing).
 **Decision:** Treat the stack as CON-01, hard, and design within it rather than re-deriving alternatives.
 **Consequences:** + Preserves timeline that CON-03's window cannot spare. + The stack satisfies every driver identified in Phases 1–5 (Python end-to-end supports NFR-003's deterministic-function pattern and NFR-006's connector interface directly; PostgreSQL supports NFR-001's row-level tenant scoping natively). − If a driver had emerged that the stack couldn't satisfy, it would surface late; none was found in Phases 1–5, so the risk is accepted rather than mitigated by re-derivation.
+
+### ADR-004 — Synthetic training data must not leak the label
+**Context:** No real MSME history is available (ASM-02), so the payment-delay model trains on generated data. The first generator drew delays from a single per-customer parameter and then exposed that same parameter as the `average_delay_days` feature. A model using it would recover our own constant, score near-perfectly, and learn nothing — making NFR-005's quality gate unfalsifiable.
+**Decision:** Generated labels must depend on a multi-factor latent process that no single feature reveals (customer tendency, invoice size, fiscal seasonality, dispute shocks), and any customer statistic exposed as a feature must be computed from *observed history* rather than from a generating parameter. Regression tests assert both properties.
+**Consequences:** + NFR-005 becomes a real gate; the measured ROC-AUC (0.834) reflects learnable structure rather than a leaked constant. + Forces the generator to encode plausible domain behaviour (fiscal year-end, disputes) instead of arbitrary noise. − Scores are lower than a leaky generator would produce, which has to be explained rather than celebrated. − Any future feature added to the model needs the same leakage review. See [`model-card.md`](model-card.md).
+
+### ADR-005 — The cash forecast is deliberately conservative
+**Context:** The forecast weights each open invoice by the model's predicted probability of payment by a given day (FR-004). Several modelling choices could each quietly manufacture cash that never arrives, and a forecast that over-projects fails at exactly the job it exists for — warning about a shortfall.
+**Decision:** Three conservatism rules. (1) Predictions are conditioned on the invoice being *still unpaid*: buckets whose window has elapsed are zeroed and the remaining mass renormalized, because an invoice 40 days overdue has already falsified "pays within 0–15 days". (2) The open-ended >45 day bucket never counts as arrived inside a 30-day horizon. (3) An invoice with no prediction contributes nothing rather than defaulting to on-time.
+**Consequences:** + The forecast under-promises rather than over-promises, which is the correct failure direction for a liquidity warning. + Fixed a real bug: before conditioning, overdue invoices inflated day-zero cash on the demo portfolio by roughly ₹7L of non-existent inflow. − Shortfalls may appear slightly earlier or larger than reality. − Expenses are still spread evenly across the horizon because the canonical model carries them only as aggregates; dated obligations from the connector would improve this.
+
+### ADR-006 — Financing triggers on the shortfall existing, not on the invoice causing it
+**Context:** The Recovery Strategy logic originally recommended FINANCE only when a TReDS-eligible invoice was itself a material contributor to the projected shortfall. In practice this produced zero FINANCE recommendations — Track B never appeared at all.
+**Decision:** Financing keys off the business having a projected cash shortfall, not off this invoice causing it. The invoice *driving* a shortfall is typically the one a financier will not discount; a reliable invoice is the better candidate — low risk to the financier, cash in hand now. Discounting still costs money, so with no shortfall projected a plain reminder wins.
+**Consequences:** + Track B becomes reachable and the recommendation matches how invoice discounting actually works. + Separates "which invoice is the problem" (prioritization) from "which invoice is the solution" (financing), which were conflated. − More invoices become financing candidates, so the ranking has to carry more of the burden of choosing between them.
 
 ## 8. Open Questions
 | ID | Question | Default if unresolved |

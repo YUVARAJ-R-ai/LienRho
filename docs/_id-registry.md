@@ -75,6 +75,9 @@ ASM-05  Multi-tenant isolation is needed even for a single-MSME hackathon demo  
 ADR-001  Modular monolith over microservices  (added 2026-08-14)
 ADR-002  LLM never computes statutory or financial values  (added 2026-08-14)
 ADR-003  Tech stack accepted as a fixed constraint, not re-derived  (added 2026-08-14)
+ADR-004  Synthetic training data must not leak the label  (added 2026-08-15)
+ADR-005  The cash forecast is deliberately conservative  (added 2026-08-15)
+ADR-006  Financing triggers on the shortfall existing, not on the invoice causing it  (added 2026-08-15)
 
 ## OQ
 OQ-01  Is WhatsApp/email outreach live-sent or drafted-in-UI only for the MVP?  (added 2026-08-14)

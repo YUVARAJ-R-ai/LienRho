@@ -5,7 +5,9 @@ description: Domain glossary, business rules, constraints, and coding convention
 
 # LIENRHO project context
 
-Derived from: `docs/inception.md` (Lite-tier inception, v1, 2026-08-14). If that file has since diverged from what's below, trust the file and update this skill in the same change.
+Derived from: `docs/inception.md` (updated 2026-08-15). If that file has since diverged from what's below, trust the file and update this skill in the same change.
+
+Current implementation state per requirement: `docs/implementation-status.md`. Model metrics and limitations: `docs/model-card.md`. Demo sequencing and cutoffs: `docs/demo-checkpoints.md`.
 
 LIENRHO is **not** an accounting app and **not** a generic finance chatbot. It's a decision + intelligence + orchestration layer that sits on top of TallyPrime/Zoho: Tally/Zoho stay the system of record for invoices, customers, payments, and ledgers; LIENRHO owns only *derived* data — predictions, forecasts, rule flags, agent findings, decisions, actions, audit logs. If a change would make LIENRHO write back financial transactions or duplicate bookkeeping, stop and check FR/CON scope in `docs/inception.md` §3 first — that's very likely out of scope.
 
@@ -14,6 +16,16 @@ LIENRHO is **not** an accounting app and **not** a generic finance chatbot. It's
 **The LLM never computes a statutory, financial, or interest value.** MSMED thresholds, TReDS eligibility, and interest calculations are deterministic Python functions (`calculate_interest()`, `check_msmed_threshold()`, `check_treds_eligibility()`, ...). LangGraph agents call these as structured tool calls and never generate the number themselves (CON-05, NFR-003, ADR-002). If you're about to have an LLM prompt "calculate X" for anything statutory or financial — don't; write or call the deterministic function instead, and make sure the audit trail records which function produced the value.
 
 The corollary for every agent: **structured I/O only.** Every LangGraph agent call returns a Pydantic-validated object; unvalidated/free-text output is never passed to the Decision Engine.
+
+## Three rules learned from building it
+
+These came out of real bugs and are easy to reintroduce:
+
+**Never let synthetic data leak the label (ADR-004).** Generated delays come from a multi-factor latent process (`sample_delay` in `app/data/synthetic.py`); any customer statistic exposed as a feature must be computed from *observed history*, not copied from a generating parameter. The first version handed the model its own constant and would have scored near-perfectly while learning nothing. Two regression tests guard this — if you add a feature, check it the same way.
+
+**The forecast under-promises on purpose (ADR-005).** Predictions are conditioned on the invoice still being unpaid, the open-ended >45 day bucket never counts as arrived inside the horizon, and an invoice with no prediction contributes nothing. Any change that makes projected cash *higher* deserves suspicion: over-projecting defeats the point of a liquidity warning.
+
+**Financing is about which invoice can solve the shortfall, not which caused it (ADR-006).** The invoice driving a shortfall is usually the one no financier will discount. Track B keys off the business having a projected shortfall at all.
 
 ## Domain glossary
 
@@ -34,7 +46,7 @@ The corollary for every agent: **structured I/O only.** Every LangGraph agent ca
 
 ## Business rules
 
-- **BR-MSMED** — An invoice is flagged `statutory_flag=true` iff overdue ≥ 45 days AND buyer conditions are satisfied (deterministic, not LLM). Boundary: 44 days = false, 45 days = true.
+- **BR-MSMED** — An invoice is flagged `statutory_flag=true` iff overdue ≥ 45 days AND buyer conditions are satisfied (deterministic, not LLM). Boundary: 44 days = false, 45 days = true. Overdue is counted from the MSMED §15 **appointed day** — the agreed credit period capped at 45 days from acceptance, not the invoice due date. Callers must pass the invoice's actual agreed credit period; omitting it silently grants every invoice the full 45 days regardless of its terms.
 - **BR-TREDS** — An invoice is TReDS-eligible iff invoice is approved AND the buyer participates in TReDS AND other eligibility conditions hold (deterministic).
 - **BR-APPROVAL** — No FINANCE, ESCALATE, or outreach-send action executes until a human explicitly approves it (`[Approve]/[Reject]` or `[Send]/[Edit]/[Cancel]`). Rejecting leaves invoice state unchanged (FR-010, CON-06). This is the one place autonomy stops — do not add a code path that skips it, even for "obviously safe" cases.
 - **BR-TENANT** — Every table carries `org_id`; every query is scoped to the authenticated user's org at the data-access layer, not left to individual endpoint authors (NFR-001).
@@ -73,5 +85,7 @@ Role ownership: **ML** = payment-delay model + cash forecast. **Backend/connecto
 ## Where to look for more
 
 - Full FR/NFR catalog, acceptance criteria, ADRs, open questions, assumptions register: `docs/inception.md`
+- What is actually built vs. specified: `docs/implementation-status.md`
+- Two things that look done but aren't: auth is a stubbed `X-Org-Id` header so NFR-001 does not hold yet, and the audit trail is in memory so it resets on restart
 - Open questions that affect design decisions before you build around them: OQ-01 (is outreach actually sent, or drafted-only?), OQ-02 (which LLM provider?), OQ-03 (is multi-org UI needed, or just the schema field?)
 - ID scheme if you add or change a requirement: `STK-nn / CON-nn / ASM-nn / FR-nnn / NFR-nnn / ADR-nnn / OQ-nn` — IDs are permanent, never renumber; mark dead ones `Status: Withdrawn` instead.
