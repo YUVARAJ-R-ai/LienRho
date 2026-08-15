@@ -8,21 +8,21 @@
 
 **What they're trying to do:** Decide, every day, which unpaid invoices to chase, finance, or escalate — so that cash actually lands in time to cover payroll, suppliers, rent, and other fixed obligations.
 
-**What blocks them today:** Existing accounting/ERP software (Tally, Zoho Books) is a system of record — it shows *that* ₹42.6L is outstanding across 30 invoices, but not *which* invoices will actually be paid, *when*, or *what to do about it*. The owner is the manual bridge between the accounting system, bank information, customer communications (WhatsApp/email), financing options (TReDS), and statutory/legal rules (MSMED Act) — cross-referencing all of it by hand (PRD §2.1, §4, §104).
+**What blocks them today:** Existing accounting/ERP software (Tally, Zoho Books) is a system of record — it shows *that* ₹42.6L is outstanding across 30 invoices, but not *which* invoices will actually be paid, *when*, or *what to do about it*. The owner is the manual bridge between the accounting system, bank information, customer communications (WhatsApp/email), financing options (TReDS), and statutory/legal rules (MSMED Act) — cross-referencing all of it by hand (PRD §54.1, §4, §104).
 
 **Cost of the status quo:** Cash shortages surface late or go unnoticed until they're imminent (e.g. a ₹6.2L deficit 14 days out); every invoice gets roughly equal manual attention regardless of risk or value; follow-up, financing, and escalation decisions are inconsistent and undocumented. `[ASSUMED]` — the PRD's ₹/day figures are an illustrative demo scenario (§63), not a validated baseline across real MSMEs; treat DSO reduction (below) as the one PRD-sourced, falsifiable target.
 
-**What "solved" looks like:** Each morning the owner sees a prioritized action queue (follow up / finance / escalate) generated automatically from receivables data, payment-risk prediction, cash forecast, statutory/financing eligibility, and communication evidence — without duplicating or replacing their accounting system (PRD §66–68, §548–590).
+**What "solved" looks like:** Each morning the owner sees a prioritized action queue (follow up / finance / escalate) generated automatically from receivables data, payment-risk prediction, cash forecast, statutory/financing eligibility, and communication evidence — without duplicating or replacing their accounting system (PRD §118–120, §548–590).
 
 ### Goals
 
 | Level | Goal | Metric / Baseline / Target |
 |---|---|---|
-| Business | Shrink the gap between "invoiced" and "cash in hand" | DSO reduction of 14–21 days (PRD §38 — the one explicit, sourced target in the PRD) |
+| Business | Shrink the gap between "invoiced" and "cash in hand" | DSO reduction of 14–21 days (PRD §90 — the one explicit, sourced target in the PRD) |
 | User | Owner can decide today's receivables actions without manually cross-referencing spreadsheets, Tally, and WhatsApp | `[ASSUMED]` time-to-decision drops from manual triage to a single reviewed action queue — no PRD baseline given; flagged as OQ-04 |
 | System | Ingest accounting data, score payment risk, forecast liquidity, apply statutory/financing rules, investigate communications, output a prioritized, explainable action queue | Architecture in §6 |
 
-### Anti-goals (PRD §5, explicit)
+### Anti-goals (PRD §57, explicit)
 - Not another Tally / Zoho Books / invoice generator / bookkeeping app.
 - Not a generic finance chatbot or an LLM that freelances financial advice.
 - Not a dashboard that just lists overdue invoices.
@@ -34,13 +34,13 @@
 | ID | Category | Statement | Hard/Soft | Source |
 |---|---|---|---|---|
 | CON-01 | Technical/Organizational | Stack fixed: Next.js/React, FastAPI/Python, PostgreSQL, XGBoost/scikit-learn, LangGraph, Pydantic | Hard | Team decision (this session) |
-| CON-02 | Technical | Primary accounting integration is TallyPrime; Zoho Books is secondary | Hard (Tally) / Soft (Zoho) | PRD §7, §22 |
+| CON-02 | Technical | Primary accounting integration is TallyPrime; Zoho Books is secondary | Hard (Tally) / Soft (Zoho) | PRD §59, §22 |
 | CON-03 | Resource | Build/demo window: a few days to 2 weeks | Hard | Team (this session) |
 | CON-04 | Resource | Team of 3–5 across ML, Backend/connectors, Agents/LLM orchestration, Frontend | Hard | Team (this session) |
-| CON-05 | Technical/architectural | Deterministic financial, statutory, and interest calculations MUST NOT be performed by the LLM — agents only call validated deterministic functions | Hard | PRD §33, §886–904 |
-| CON-06 | Organizational/legal | Sensitive/irreversible actions (financing, escalation, legal dossier) require human approval in the MVP | Hard | PRD §18, §611–641 |
-| CON-07 | Technical | TReDS integration is a sandbox/mock connector, not a live financial transaction | Hard, this build horizon | PRD §659–663 |
-| CON-08 | Legal | Legal/MSMED workflow produces a document-generation dossier only — no automated filing to MSME Samadhaan ODR | Hard, this build horizon | PRD §684–710 |
+| CON-05 | Technical/architectural | Deterministic financial, statutory, and interest calculations MUST NOT be performed by the LLM — agents only call validated deterministic functions | Hard | PRD §85, §886–904 |
+| CON-06 | Organizational/legal | Sensitive/irreversible actions (financing, escalation, legal dossier) require human approval in the MVP | Hard | PRD §70, §611–641 |
+| CON-07 | Technical | TReDS integration is a sandbox/mock connector, not a live financial transaction | Hard, this build horizon | PRD §711–715 |
+| CON-08 | Legal | Legal/MSMED workflow produces a document-generation dossier only — no automated filing to MSME Samadhaan ODR | Hard, this build horizon | PRD §736–762 |
 
 ### Assumptions (ASM-nn)
 
@@ -78,11 +78,11 @@
 | STK-03 | Financier / TReDS platform | Receives a well-formed, eligible financing submission | Should |
 | STK-04 | Legal / statutory system (MSME Samadhaan) | Receives an accurate, evidence-backed dossier if escalation is warranted | Should |
 | STK-05 | Development team (ML, Backend, Agents, Frontend roles) | Ship a working, demoable MVP within the build window | Must |
-| STK-06 | Hackathon judges/evaluators `[ASSUMED — inferred audience for "the demo story" in PRD §44]` | See a technically credible, non-generic system (ML + rules + agents, not "just an AI dashboard") | Must |
+| STK-06 | Hackathon judges/evaluators `[ASSUMED — inferred audience for "the demo story" in PRD §96]` | See a technically credible, non-generic system (ML + rules + agents, not "just an AI dashboard") | Must |
 
 ## 3. Scope
 
-**In scope (MVP, PRD §34):**
+**In scope (MVP, PRD §86):**
 - TallyPrime connector (read invoices, customers, payments, ledgers)
 - Canonical data model / normalization layer
 - Synthetic/realistic 30-invoice (₹42.6L) demo dataset
@@ -97,7 +97,7 @@
 - TReDS mock/sandbox submission
 - Legal/MSMED dossier generation (document only)
 
-**Out of scope, with reason (PRD §35–36):**
+**Out of scope, with reason (PRD §87–88):**
 - Zoho Books connector — Should-have; secondary integration, deferred past MVP
 - Multilingual (Tamil/Hinglish) generation — Should-have; English-first for MVP
 - What-if analysis, customer relationship scoring — Should-have; not needed for core demo story
@@ -116,9 +116,9 @@
 - What-if scenario analysis ("what happens if I finance ₹5L?")
 
 **Boundary:**
-- **System of record:** Tally/Zoho remain system of record for invoices, customers, payments, ledgers. LIENRHO owns only its *derived* data — predictions, forecasts, rule-engine flags, agent findings, decisions, actions, audit logs (PRD §120–124, §46).
+- **System of record:** Tally/Zoho remain system of record for invoices, customers, payments, ledgers. LIENRHO owns only its *derived* data — predictions, forecasts, rule-engine flags, agent findings, decisions, actions, audit logs (PRD §172–176, §46).
 - **Automated:** risk scoring, cash forecasting, statutory/TReDS eligibility checks, communication investigation, draft message generation, dossier assembly.
-- **Supported, human decides:** approval of financing, approval of escalation, approval/edit of outreach messages (PRD §18, §611–641).
+- **Supported, human decides:** approval of financing, approval of escalation, approval/edit of outreach messages (PRD §70, §611–641).
 - **Untouched:** actual invoicing, ledger posting, reconciliation, bookkeeping — stays in Tally/Zoho.
 - **Delegated to external systems:** actual payment processing, actual TReDS financing execution (mocked for MVP), actual legal filing (dossier only), message delivery infrastructure `[ASSUMED — no delivery provider named in PRD; see ASM-03]`.
 
@@ -150,7 +150,7 @@ graph TB
 ## 4. Functional Requirements (8–15)
 
 ### FR-001 — Ingest and normalize accounting data
-**Statement:** The system shall synchronize invoices, customers, payments, and ledger records from a connected TallyPrime instance on a scheduled and on-demand basis, normalizing every field into the canonical data model (PRD §8) regardless of source system. `[Lint note: the two "and"s here join a field list and a schedule pair, not two behaviors — sync-with-normalization is one atomic operation; reviewed and accepted.]`
+**Statement:** The system shall synchronize invoices, customers, payments, and ledger records from a connected TallyPrime instance on a scheduled and on-demand basis, normalizing every field into the canonical data model (PRD §60) regardless of source system. `[Lint note: the two "and"s here join a field list and a schedule pair, not two behaviors — sync-with-normalization is one atomic operation; reviewed and accepted.]`
 **Trace to:** STK-01, STK-05 · **Priority:** Must
 **Acceptance criteria:** (1) Given a configured Tally connection, when sync runs, then all invoices have `invoice_id`, `customer_id`, `invoice_amount`, `invoice_date`, `due_date`, `payment_status` populated in the canonical store. (2) Given Tally is unreachable, when sync runs, then the system reports a sync failure with a timestamp and does not overwrite existing normalized data with partial results. (3) Given a re-run sync with no upstream changes, then no duplicate invoice records are created.
 
@@ -190,12 +190,12 @@ graph TB
 **Acceptance criteria:** (1) Given a message containing a payment-promise phrase, when analyzed, then `payment_promise = true` and `promised_date` is extracted if a date is present. (2) Given any input, the agent's output always validates against its Pydantic schema — malformed/unvalidated output is never surfaced to the decision engine.
 
 ### FR-008 — Recommend a recovery strategy per invoice
-**Statement:** The Recovery Strategy agent shall combine payment risk, cash urgency, statutory/TReDS eligibility, customer relationship signal, and communication evidence to recommend exactly one action — FOLLOW_UP, FINANCE, or ESCALATE — with a stated reason (PRD §446–500, Tracks A/B/C).
+**Statement:** The Recovery Strategy agent shall combine payment risk, cash urgency, statutory/TReDS eligibility, customer relationship signal, and communication evidence to recommend exactly one action — FOLLOW_UP, FINANCE, or ESCALATE — with a stated reason (PRD §498–552, Tracks A/B/C).
 **Trace to:** STK-01 · **Priority:** Must
 **Acceptance criteria:** Given inputs matching a Track A/B/C condition set, when the strategy runs, then the recommended action matches the corresponding track, and the output cites the specific deciding factors (e.g. "payment promise exists, no dispute, high-value customer").
 
 ### FR-009 — Prioritize actions into a daily action queue
-**Statement:** The system shall rank all recommended actions into priority tiers (Critical / High / Follow Up, per PRD §562–588) using payment probability, cash-flow urgency, invoice value, days overdue, legal urgency, and financing availability, and display them as a single ranked queue.
+**Statement:** The system shall rank all recommended actions into priority tiers (Critical / High / Follow Up, per PRD §614–640) using payment probability, cash-flow urgency, invoice value, days overdue, legal urgency, and financing availability, and display them as a single ranked queue.
 **Trace to:** STK-01 · **Priority:** Must
 **Acceptance criteria:** Given multiple recommended actions, when the queue renders, then items are grouped by priority tier and ordered by descending invoice value within tier; every item shows amount, customer, the reason, and the recommended action.
 
@@ -212,7 +212,7 @@ graph TB
 ### FR-012 — Generate a mock TReDS financing submission
 **Statement:** For an approved FINANCE action on a TReDS-eligible invoice, the system shall generate a mock submission payload (`invoice_id`, `amount`, `buyer`, `due_date`, `financing_required`) and simulate eligibility, rate, estimated proceeds, and estimated financing cost.
 **Trace to:** STK-01, STK-03 · **Priority:** Must
-**Acceptance criteria:** Given an approved finance action, when the submission is generated, then the payload matches the schema in PRD §667–673 and `estimated_proceeds = amount − simulated_financing_cost`.
+**Acceptance criteria:** Given an approved finance action, when the submission is generated, then the payload matches the schema in PRD §719–725 and `estimated_proceeds = amount − simulated_financing_cost`.
 
 ### FR-013 — Generate a statutory escalation dossier
 **Statement:** For an approved ESCALATE action, the system shall assemble a document containing Udyam information, the invoice, payment history, proof of delivery (if available), communication evidence, calculated statutory interest, and required documentation, for manual filing (CON-08).
@@ -222,7 +222,7 @@ graph TB
 ### FR-014 — Record an audit trail for every recommendation and action
 **Statement:** The system shall record, for every recommendation and every user action taken on it, what was recommended, why (evidence), who/what decided (ML / Rules / Agent / Human), and what happened — retrievable per invoice.
 **Trace to:** STK-01, STK-06 · **Priority:** Must
-**Acceptance criteria:** Given any approved or rejected action, when the invoice's audit trail is viewed, then all fields from PRD §1119–1146 (What/Why/Evidence/Who decided/What happened) are present with timestamps.
+**Acceptance criteria:** Given any approved or rejected action, when the invoice's audit trail is viewed, then all fields from PRD §1171–1198 (What/Why/Evidence/Who decided/What happened) are present with timestamps.
 
 > **Lint review note (Phase 8):** `check_requirements.py`'s compound-requirement heuristic also flags FR-009, FR-012, and FR-014 for containing two "and"s after "shall." In each case the "and"s join items in an enumerated list (ranking factors; payload fields; audit fields) or a tightly-coupled generate+simulate/record pair, not two independently-testable behaviors — reviewed and accepted as single requirements rather than split.
 
@@ -232,21 +232,21 @@ graph TB
 **Category:** Security → Confidentiality/access control
 **Statement:** A user authenticated to Organization A shall not be able to read or write any data belonging to Organization B, enforced at the API/query layer.
 **Metric/Target:** 0 cross-tenant leaks across an access-control test suite covering every tenant-scoped endpoint.
-**Rationale:** Explicit requirement, PRD §1148–1166; financial data sensitivity.
-**Trace to:** STK-01 · derived from CON-01 (Organization isolation, PRD §1163–1166)
+**Rationale:** Explicit requirement, PRD §1200–1218; financial data sensitivity.
+**Trace to:** STK-01 · derived from CON-01 (Organization isolation, PRD §1215–1218)
 
 ### NFR-002 — Connector credential secrecy
 **Category:** Security → Confidentiality
 **Statement:** Tally/Zoho connector credentials (API keys, OAuth tokens) shall be stored encrypted at rest and never appear in plaintext logs.
 **Metric/Target:** 0 plaintext secrets found by CI secret-scanning; credentials table confirmed encrypted at rest.
-**Rationale:** PRD §1159–1161.
+**Rationale:** PRD §1211–1213.
 **Trace to:** STK-01, STK-05
 
 ### NFR-003 — Deterministic statutory/financial computation
 **Category:** Reliability (faultlessness) + Compliance
 **Statement:** MSMED threshold flags, TReDS eligibility, and interest calculations shall be computed only by deterministic Python functions; the LLM shall never perform this arithmetic (CON-05).
 **Metric/Target:** 100% of statutory/eligibility/interest values in the audit trail trace to a named deterministic function; code review confirms no LLM-authored arithmetic in these paths.
-**Rationale:** PRD §365–369, §886–904 — the architecture's core defensibility principle.
+**Rationale:** PRD §417–421, §886–904 — the architecture's core defensibility principle.
 **Trace to:** STK-01, STK-04 · derived from CON-05
 
 ### NFR-004 — Action queue render latency
@@ -259,29 +259,29 @@ graph TB
 ### NFR-005 — Payment-delay model quality
 **Category:** Functional suitability / ML performance
 **Statement:** The XGBoost payment-delay model shall achieve ROC-AUC ≥ 0.75 and expected calibration error ≤ 0.10 on a held-out split before it drives any recommendation.
-**Metric/Target:** ROC-AUC ≥ 0.75, ECE ≤ 0.10, plus the metrics named in PRD §39 (precision, recall, F1, bucket accuracy) reported per model version.
-**Rationale:** PRD §39 names the metrics but not thresholds — `[ASSUMED]` numeric bar chosen so "trained" is falsifiable rather than a claim with no gate.
+**Metric/Target:** ROC-AUC ≥ 0.75, ECE ≤ 0.10, plus the metrics named in PRD §91 (precision, recall, F1, bucket accuracy) reported per model version.
+**Rationale:** PRD §91 names the metrics but not thresholds — `[ASSUMED]` numeric bar chosen so "trained" is falsifiable rather than a claim with no gate.
 **Trace to:** STK-01, STK-06
 
 ### NFR-006 — Connector extensibility
 **Category:** Maintainability → Modifiability
-**Statement:** Adding a new accounting connector implementing the existing `AccountingConnector` interface (PRD §774–806) shall require no changes to the ML, rules, agent, or decision-engine layers.
+**Statement:** Adding a new accounting connector implementing the existing `AccountingConnector` interface (PRD §826–858) shall require no changes to the ML, rules, agent, or decision-engine layers.
 **Metric/Target:** A canned-data test connector integrates with 0 changes required outside the connector module and its registration point.
-**Rationale:** PRD §21–24 — "not tied to one accounting vendor" is a stated architectural driver, not just a nice-to-have.
+**Rationale:** PRD §73–76 — "not tied to one accounting vendor" is a stated architectural driver, not just a nice-to-have.
 **Trace to:** STK-05, STK-06
 
 ### NFR-007 — Decision traceability
 **Category:** Reliability + Compliance (accountability)
 **Statement:** Every action-queue item shall be traceable, via the audit trail (FR-014), to the specific combination of ML prediction, rule evaluation, and agent output that produced it, without inspecting raw logs.
 **Metric/Target:** 100% of action-queue items have a non-empty, structured "why" trail retrievable from the invoice investigation screen.
-**Rationale:** PRD §31, §1119–1146 — "this makes the system defensible" is stated as a design requirement, not decoration.
+**Rationale:** PRD §83, §1119–1146 — "this makes the system defensible" is stated as a design requirement, not decoration.
 **Trace to:** STK-01, STK-06
 
 ### NFR-008 — Recommendation explainability
 **Category:** Interaction capability → Learnability, appropriateness recognizability
 **Statement:** A first-time user viewing an invoice investigation screen shall be able to identify the recommended action and its top reason without additional explanation.
 **Metric/Target:** `[ASSUMED]` ≥4/5 informal user-test reviewers correctly state the recommended action and primary reason after viewing the screen unaided, checked before demo day — no formal usability target given in the PRD.
-**Rationale:** PRD §29, §314 — "finance users need defensible decisions, not black-box numbers" is a stated differentiator from a generic dashboard.
+**Rationale:** PRD §81, §314 — "finance users need defensible decisions, not black-box numbers" is a stated differentiator from a generic dashboard.
 **Trace to:** STK-01, STK-06
 
 ## 6. Architecture Sketch
@@ -325,10 +325,10 @@ graph TB
 ```
 
 **Cross-cutting concerns (decided once, centrally):**
-- **LLM safety boundary (CON-05, NFR-003):** agents never compute; every statutory/financial value is produced by calling a named deterministic function (e.g. `calculate_interest()`, `check_msmed_threshold()`, `check_treds_eligibility()`) and the agent's role is limited to structured-output extraction and strategy selection (PRD §1175–1221).
+- **LLM safety boundary (CON-05, NFR-003):** agents never compute; every statutory/financial value is produced by calling a named deterministic function (e.g. `calculate_interest()`, `check_msmed_threshold()`, `check_treds_eligibility()`) and the agent's role is limited to structured-output extraction and strategy selection (PRD §1227–1273).
 - **Approval gate (FR-010, CON-06):** the Decision Engine writes recommendations in `PENDING_APPROVAL` state; only an explicit user action transitions to `APPROVED`/`REJECTED`, and only `APPROVED` triggers outreach/mock-TReDS/dossier generation.
 - **Tenant isolation (NFR-001):** every table carries an `org_id`; every query is scoped by the authenticated user's org at the data-access layer, not left to individual endpoint authors to remember.
-- **Structured agent I/O:** every agent call returns a Pydantic-validated object; unvalidated output is never passed to the Decision Engine (PRD §871–885).
+- **Structured agent I/O:** every agent call returns a Pydantic-validated object; unvalidated output is never passed to the Decision Engine (PRD §923–937).
 - **Idempotent sync:** Tally/Zoho connector syncs use upsert-by-source-ID so repeated syncs never duplicate invoices (FR-001 AC-3).
 
 ## 7. Key Decisions (2–3 ADRs, condensed)
@@ -339,7 +339,7 @@ graph TB
 **Consequences:** + Builds and integrates within the CON-03 window; each role owns a Python package/module without owning a separate deployment. + Matches team skill (no one needs distributed-systems experience). − If a future driver (e.g. the ML module needing GPU autoscaling independent of the API) emerges, extraction work is needed later, but the module boundary already exists to make that cheap.
 
 ### ADR-002 — LLM never computes statutory or financial values
-**Context:** The product's credibility rests on defensible, auditable numbers (MSMED interest, TReDS eligibility, statutory thresholds); LLMs are probabilistic and cannot be trusted to reproduce exact regulatory arithmetic reliably (PRD §33, §365–369, §886–904).
+**Context:** The product's credibility rests on defensible, auditable numbers (MSMED interest, TReDS eligibility, statutory thresholds); LLMs are probabilistic and cannot be trusted to reproduce exact regulatory arithmetic reliably (PRD §85, §365–369, §886–904).
 **Decision:** All such calculations are deterministic Python functions. LangGraph agents interact with them only via structured tool calls, never by generating the number themselves; the audit trail (FR-014) records which deterministic function produced each value.
 **Consequences:** + Every statutory/financial figure is testable and reproducible independent of any LLM run. + Makes NFR-003 and the dossier (FR-013) legally defensible. − Requires the Agents role to design tool-call schemas up front rather than freely prompting for answers — more design work early, but it removes an entire class of hallucination risk from the system's most consequential outputs.
 
