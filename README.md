@@ -46,8 +46,11 @@ cd backend
 docker compose up -d          # starts Postgres on :5432
 uv sync                       # installs dependencies
 uv run alembic upgrade head   # creates the schema
+uv run python -m app.ml_core.train     # trains the delay model (CUDA, falls back to CPU)
 uv run uvicorn app.main:app --reload   # http://localhost:8000
 ```
+
+The API degrades to rule-only recommendations if no trained model artifact exists, so it still starts before you train. `./run-dev.sh start|stop|status` runs it detached at low priority if you'd rather not hold a terminal.
 
 ## The problem
 
@@ -207,23 +210,32 @@ These affect design and are not yet resolved (see `docs/inception.md` §8 for de
 | Backend skeleton + module boundaries | ✅ Done |
 | Canonical data model (Pydantic + ORM) | ✅ Done |
 | Postgres schema, migrations, org scoping | ✅ Done |
-| Frontend: action queue, investigation, forecast, approvals | ✅ Done (on mock data) |
 | MSMED + TReDS rules engines | ✅ Done |
 | Synthetic demo dataset | ✅ Done |
-| Tally connector | ⬜ Not started |
-| XGBoost delay model + explainability | ⬜ Not started |
-| Cash-flow forecast | ⬜ Not started |
+| XGBoost delay model + explainability | ✅ Done |
+| Cash-flow forecast + shortfall contributors | ✅ Done |
+| Decision engine + approval gate | ✅ Done |
+| API endpoints | ✅ Done |
+| Frontend: 4 screens, wired to live API | ✅ Done |
+| Audit trail (in-memory) | ✅ Done |
 | LangGraph agents | ⬜ Not started |
-| Decision engine + approval gate (backend) | ⬜ Not started |
+| Tally connector | ⬜ Not started |
 | Outreach, mock TReDS, dossier | ⬜ Not started |
-| Audit trail (backend) | ⬜ Not started |
+| Audit trail persistence to Postgres | ⬜ Not started |
 
-Frontend screens currently read from `frontend/src/lib/mockData.ts`; wiring them to real endpoints happens as each backend module lands. Build order and phase dependencies: [`docs/framework-plan.md`](docs/framework-plan.md). Track work via the repo's Issues and project board.
+The pipeline runs end to end: synthetic portfolio → XGBoost predictions → deterministic MSMED/TReDS checks → probabilistic cash forecast → ranked action queue → UI, with every recommendation carrying its ML/Rules/Agent audit trail.
+
+**Model quality (held-out, NFR-005 gate: PASS)** — ROC-AUC 0.834, expected calibration error 0.031, bucket accuracy 62.3% against a 25% four-class baseline. That figure is deliberately not near-perfect: the generator draws delays from a multi-factor latent process and the customer's average delay is computed from observed history, so the model has to learn a real relationship rather than recover a constant it was handed.
+
+Build order and phase dependencies: [`docs/framework-plan.md`](docs/framework-plan.md).
 
 **Two things to know before building on this:**
 
-- Auth is stubbed. `backend/app/db/scoping.py` trusts an unverified `X-Org-Id` header, so NFR-001 does not hold yet — the scoping helper is right, the identity feeding it isn't. Don't expose this beyond local dev.
-- The frontend's `src/lib/types.ts` mirrors the backend canonical model by hand. Nothing enforces they stay in sync.
+- Auth is stubbed. `backend/app/db/scoping.py` trusts an unverified `X-Org-Id` header, so NFR-001 does not hold yet — the scoping helper is right, the identity feeding it isn't. Don't expose this beyond local dev (#20).
+- The frontend's `src/lib/types.ts` mirrors the backend response shapes by hand. Nothing enforces they stay in sync (#21).
+- The action queue reads the synthetic portfolio, not a live Tally sync. Swapping it means changing `_load_portfolio()` in `backend/app/decision_engine/service.py` and nothing else (#6).
+- Agent findings on the investigation screen are returned empty rather than fabricated, since the Receivables Investigator isn't built (#12).
+- Approvals are in-memory and reset on restart; persistence is outstanding.
 
 ## License
 
