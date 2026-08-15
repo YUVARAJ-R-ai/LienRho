@@ -7,6 +7,58 @@ Core idea: An intelligent working-capital decision layer that integrates with ex
 
 This PRD consolidates the original hackathon research/problem statement with the decisions we made during our discussion. Where the research document specifies a technical or regulatory component, I preserve that design; the Tally/Zoho integration direction is our product decision discussed afterward, not something claimed by the source document.
 
+Note: docs/inception.md is the more current, structured source of truth (stakeholders, scope, FR/NFR IDs, ADRs). Where the two disagree, inception.md wins.
+
+## Table of contents
+
+1. Executive Summary
+2. Problem Statement (2.1 The real-world problem)
+3. Product Vision
+4. Target User
+5. What LIENRHO Is NOT
+6. Product Architecture
+7. Layer 1 — Data Integration
+8. Canonical Financial Data Model
+9. Layer 2 — Payment Risk ML
+10. Layer 2B — Cash-Flow Forecasting
+11. Liquidity Risk
+12. Layer 3 — Deterministic Rules Engine
+13. Layer 4 — Multi-Agent Investigation
+14. Agent 2 — Recovery Strategy Agent
+15. Decision Engine
+16. Daily Action Queue
+17. Layer 6 — Outreach
+18. Human-in-the-Loop
+19. TReDS Integration
+20. Legal / MSMED Workflow
+21. Integration Architecture
+22. Tally Integration
+23. Zoho Integration
+24. Unified Connector Interface
+25. Recommended Tech Stack
+26. Data Flow
+27. Core User Journey
+28. Main Dashboard
+29. Invoice Investigation Screen
+30. Cash Forecast Screen
+31. Explainability & Audit Trail
+32. Security Requirements
+33. LLM Safety Architecture
+34. MVP Scope
+35. Should Have
+36. Future Scope
+37. Demo Dataset
+38. Key Metrics
+39. Technical Evaluation Metrics
+40. What Makes LIENRHO Technically Strong
+41. What Makes LIENRHO Economically Strong
+42. Product Positioning
+43. One-Line Pitch
+44. The Demo Story
+45. The Core Product Philosophy
+46. Final Technical Scope
+47. Final Definition of LIENRHO
+
 1. Executive Summary
 
 Indian MSMEs can have healthy sales and profits while still facing serious cash-flow problems because customers frequently pay invoices much later than the business needs the money. The resulting gap between accounts receivable and available cash creates working-capital stress, particularly when payroll, suppliers, rent, and other expenses become due before customers pay.
