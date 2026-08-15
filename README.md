@@ -208,16 +208,22 @@ These affect design and are not yet resolved (see `docs/inception.md` §8 for de
 | Canonical data model (Pydantic + ORM) | ✅ Done |
 | Postgres schema, migrations, org scoping | ✅ Done |
 | Frontend: action queue, investigation, forecast, approvals | ✅ Done (on mock data) |
+| MSMED + TReDS rules engines | ✅ Done |
+| Synthetic demo dataset | ✅ Done |
 | Tally connector | ⬜ Not started |
 | XGBoost delay model + explainability | ⬜ Not started |
 | Cash-flow forecast | ⬜ Not started |
-| MSMED + TReDS rules engines | ⬜ Not started |
 | LangGraph agents | ⬜ Not started |
 | Decision engine + approval gate (backend) | ⬜ Not started |
 | Outreach, mock TReDS, dossier | ⬜ Not started |
 | Audit trail (backend) | ⬜ Not started |
 
 Frontend screens currently read from `frontend/src/lib/mockData.ts`; wiring them to real endpoints happens as each backend module lands. Build order and phase dependencies: [`docs/framework-plan.md`](docs/framework-plan.md). Track work via the repo's Issues and project board.
+
+**Two things to know before building on this:**
+
+- Auth is stubbed. `backend/app/db/scoping.py` trusts an unverified `X-Org-Id` header, so NFR-001 does not hold yet — the scoping helper is right, the identity feeding it isn't. Don't expose this beyond local dev.
+- The frontend's `src/lib/types.ts` mirrors the backend canonical model by hand. Nothing enforces they stay in sync.
 
 ## License
 
