@@ -48,6 +48,7 @@ class Payment(OrgScopedMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     invoice_id: Mapped[str] = mapped_column(ForeignKey("invoices.invoice_id"))
+    customer_id: Mapped[str] = mapped_column(ForeignKey("customers.customer_id"), index=True)
     due_date: Mapped[date]
     actual_payment_date: Mapped[date | None]
     days_delayed: Mapped[int | None]

@@ -45,6 +45,10 @@ class CanonicalCustomer(BaseModel):
 class CanonicalPayment(BaseModel):
     org_id: str
     invoice_id: str
+    # Denormalized from the invoice so payment history is usable for ML features
+    # (per-customer delay statistics) without joining through invoices, which
+    # may have been archived out of the canonical store.
+    customer_id: str
     due_date: date
     actual_payment_date: date | None = None
     days_delayed: int | None = None
