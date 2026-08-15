@@ -26,16 +26,16 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 
 ## Non-functional requirements
 
-| ID | Requirement | State | Notes |
-|---|---|---|---|
-| NFR-001 | Organization data isolation | 🟡 | `org_scoped()` enforces it at the data-access layer, but `get_current_org_id()` trusts an unverified `X-Org-Id` header — **the requirement does not hold yet** (#20) |
-| NFR-002 | Connector credential secrecy | ⬜ | No connector credentials exist yet |
-| NFR-003 | Deterministic statutory computation | ✅ | All statutory/eligibility/interest values come from named functions in `rules_engine/`, reached only through `agents/tools.ToolBox`, which records every call. The audit trail shows each one as a `TOOL` entry with its arguments and result |
-| NFR-004 | Action queue latency p95 ≤ 3.0s @ 100 invoices | ⬜ | **Not measured.** Needs a 100-invoice portfolio; the demo set is 30 |
-| NFR-005 | Model quality | ✅ | ROC-AUC 0.834, ECE 0.031 — gate PASS. See [`model-card.md`](model-card.md) |
-| NFR-006 | Connector extensibility | ✅ | Downstream modules depend only on canonical types; no connector-specific format leaks |
-| NFR-007 | Decision traceability | 🟡 | Every queue item traces to its ML prediction and rule evaluation; not durable across restarts (#19) |
-| NFR-008 | Recommendation explainability | 🟡 | Investigation screen leads with action + reason, then evidence. The ≥4/5 informal user test has not been run |
+| ID      | Requirement                                    | State | Notes                                                                                                                                                                                                                                         |
+| ------- | ---------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| NFR-001 | Organization data isolation                    | 🟡    | `org_scoped()` enforces it at the data-access layer, but `get_current_org_id()` trusts an unverified `X-Org-Id` header — **the requirement does not hold yet** (#20)                                                                          |
+| NFR-002 | Connector credential secrecy                   | ⬜     | No connector credentials exist yet                                                                                                                                                                                                            |
+| NFR-003 | Deterministic statutory computation            | ✅     | All statutory/eligibility/interest values come from named functions in `rules_engine/`, reached only through `agents/tools.ToolBox`, which records every call. The audit trail shows each one as a `TOOL` entry with its arguments and result |
+| NFR-004 | Action queue latency p95 ≤ 3.0s @ 100 invoices | ⬜     | **Not measured.** Needs a 100-invoice portfolio; the demo set is 30                                                                                                                                                                           |
+| NFR-005 | Model quality                                  | ✅     | ROC-AUC 0.834, ECE 0.031 — gate PASS. See [`model-card.md`](model-card.md)                                                                                                                                                                    |
+| NFR-006 | Connector extensibility                        | ✅     | Downstream modules depend only on canonical types; no connector-specific format leaks                                                                                                                                                         |
+| NFR-007 | Decision traceability                          | 🟡    | Every queue item traces to its ML prediction and rule evaluation; not durable across restarts (#19)                                                                                                                                           |
+| NFR-008 | Recommendation explainability                  | 🟡    | Investigation screen leads with action + reason, then evidence. The ≥4/5 informal user test has not been run                                                                                                                                  |
 
 ## Assumptions and open questions
 
