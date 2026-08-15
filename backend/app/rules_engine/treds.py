@@ -13,9 +13,10 @@ When an invoice is ineligible the caller needs to know *which* condition failed
 from datetime import date
 from decimal import Decimal
 
-# Financiers generally won't discount an invoice maturing too soon to be worth
-# the transaction, or one already past its due date.
-MIN_DAYS_TO_DUE = 15
+# Discounting needs remaining tenor to price against. Past the due date there is
+# nothing left to discount - that invoice is a collection problem, not a
+# financing one.
+MIN_DAYS_TO_DUE = 5
 
 # Below this, discounting costs more than it returns.
 MIN_INVOICE_AMOUNT = Decimal(50000)

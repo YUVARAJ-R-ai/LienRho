@@ -47,7 +47,7 @@ def test_ineligible_when_already_financed():
 
 
 def test_ineligible_when_due_date_too_close():
-    result = _check(due_date=AS_OF + timedelta(days=5))
+    result = _check(due_date=AS_OF + timedelta(days=2))
     assert result["eligible"] is False
     assert any("days to due date" in c for c in result["failing_conditions"])
 

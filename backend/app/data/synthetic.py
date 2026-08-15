@@ -128,12 +128,13 @@ SHOWCASE_INVOICES = [
         "amount": Decimal(480000),
         "days_overdue": 17,
     },
-    # Case B — finance via TReDS.
+    # Case B — finance via TReDS. prd.md §37 has this one *due in 10 days*
+    # rather than overdue: it's the financing candidate, not a collection problem.
     {
         "invoice_id": "INV-1038",
         "customer_id": "CUST-002",
         "amount": Decimal(320000),
-        "days_overdue": 26,
+        "days_overdue": -10,
     },
     # Case C — statutory escalation.
     {
