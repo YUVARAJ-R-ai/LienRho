@@ -23,6 +23,7 @@ from app.api.schemas import (
 from app.decision_engine.service import (
     build_action_queue,
     get_cash_forecast,
+    get_findings,
     get_investigation,
 )
 from app.ml_core.features import BUCKET_LABELS
@@ -184,16 +185,7 @@ def investigation(invoice_id: str) -> InvestigationOut:
                 None if data["treds"]["eligible"] else data["treds"]["reason"]
             ),
         ),
-        # The Receivables Investigator agent (#12) isn't built yet, so findings
-        # are reported as empty rather than fabricated. The shape is fixed so
-        # the screen doesn't change when the agent lands.
-        findings=AgentFindingsOut(
-            payment_promise=False,
-            promised_date=None,
-            dispute_detected=False,
-            confidence=0.0,
-            evidence=["Communication analysis not yet available"],
-        ),
+        findings=_findings_out(get_findings(invoice_id)),
         recommended_action=rec.recommended_action.value,
         reason=rec.reason,
         approval_state=rec.approval_state.value,
@@ -206,4 +198,42 @@ def investigation(invoice_id: str) -> InvestigationOut:
             )
             for e in rec.audit_trail
         ],
+    )
+
+
+def _findings_out(findings) -> AgentFindingsOut:
+    """Render Investigator findings for the UI (FR-007).
+
+    Promise credibility is folded into the evidence list rather than hidden: a
+    promise from a customer who has broken three is the single most useful thing
+    on the screen, and burying it would defeat the point of reading the threads.
+    """
+    if findings is None:
+        return AgentFindingsOut(
+            payment_promise=False,
+            promised_date=None,
+            dispute_detected=False,
+            confidence=0.0,
+            evidence=["No correspondence on file for this invoice"],
+        )
+
+    evidence = list(findings.evidence)
+    if findings.payment_promise and not findings.promise_is_credible:
+        kept_share = (
+            f" (kept {findings.promise_reliability:.0%} of past promises)"
+            if findings.promise_reliability is not None
+            else ""
+        )
+        evidence.insert(
+            0,
+            f"Promise treated as unreliable — {findings.prior_broken_promises} prior "
+            f"promise(s) not kept{kept_share}",
+        )
+
+    return AgentFindingsOut(
+        payment_promise=findings.payment_promise,
+        promised_date=findings.promised_date.isoformat() if findings.promised_date else None,
+        dispute_detected=findings.dispute_detected,
+        confidence=findings.confidence,
+        evidence=evidence,
     )

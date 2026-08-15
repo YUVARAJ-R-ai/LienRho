@@ -143,6 +143,16 @@ SHOWCASE_INVOICES = [
         "amount": Decimal(210000),
         "days_overdue": 52,
     },
+    # Case D — disputed. Past the statutory threshold and TReDS-eligible on
+    # paper, but the customer has raised a quality objection, so neither
+    # escalation nor financing is appropriate until a human resolves it. The
+    # demo needs this case to show the system declining to act, not just acting.
+    {
+        "invoice_id": "INV-1051",
+        "customer_id": "CUST-007",
+        "amount": Decimal(175000),
+        "days_overdue": 30,
+    },
 ]
 
 
