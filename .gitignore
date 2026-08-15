@@ -1,0 +1,23 @@
+# Editor backup/swap files
+*~
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+
+# Env files
+.env
+.env.local
+
+# OS
+.DS_Store
