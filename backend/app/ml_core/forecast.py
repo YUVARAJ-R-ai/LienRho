@@ -54,6 +54,35 @@ class CashForecast:
         return self.shortfall_date is not None
 
 
+def condition_on_still_unpaid(
+    delay_probabilities: dict[str, float], days_overdue: int
+) -> dict[str, float]:
+    """Renormalize the delay distribution given the invoice is *still unpaid*.
+
+    The model predicts delay from the due date, but an invoice sitting 20 days
+    overdue has already falsified the "paid within 0-15 days" outcome. Without
+    conditioning, the forecast counts that bucket's mass as incoming cash —
+    money we can observe did not arrive — and systematically over-projects.
+
+    Buckets whose window has fully elapsed are zeroed and the surviving mass is
+    rescaled. If every bucket has elapsed, the invoice is treated as certain to
+    fall in the open-ended >45 day bucket.
+    """
+    if days_overdue <= 0:
+        return dict(delay_probabilities)
+
+    survived = {}
+    for edge, label in zip(BUCKET_EDGES, BUCKET_LABELS[:-1], strict=True):
+        # A bucket is still possible only if its window hasn't closed yet.
+        survived[label] = 0.0 if days_overdue >= edge else delay_probabilities.get(label, 0.0)
+    survived[BUCKET_LABELS[-1]] = delay_probabilities.get(BUCKET_LABELS[-1], 0.0)
+
+    total = sum(survived.values())
+    if total <= 0:
+        return {label: (1.0 if label == BUCKET_LABELS[-1] else 0.0) for label in BUCKET_LABELS}
+    return {label: value / total for label, value in survived.items()}
+
+
 def probability_paid_by(
     *,
     delay_probabilities: dict[str, float],
@@ -108,8 +137,14 @@ def build_forecast(
 
         expected_inflow = Decimal(0)
         for invoice in invoices:
+            # Condition on the invoice still being unpaid as of today, so
+            # elapsed buckets don't contribute cash that never arrived.
+            conditioned = condition_on_still_unpaid(
+                predictions.get(invoice.invoice_id, {}),
+                max((as_of - invoice.due_date).days, 0),
+            )
             probability = probability_paid_by(
-                delay_probabilities=predictions.get(invoice.invoice_id, {}),
+                delay_probabilities=conditioned,
                 due_date=invoice.due_date,
                 target_day=day,
             )
@@ -140,6 +175,7 @@ def build_forecast(
             invoices=invoices,
             predictions=predictions,
             shortfall_date=shortfall_date,
+            as_of=as_of,
         )
 
     return CashForecast(
@@ -156,6 +192,7 @@ def rank_shortfall_contributors(
     invoices: list[CanonicalInvoice],
     predictions: dict[str, dict[str, float]],
     shortfall_date: date,
+    as_of: date,
 ) -> list[ShortfallContributor]:
     """Rank invoices by how much of their value is still missing at the breach (FR-015).
 
@@ -166,8 +203,12 @@ def rank_shortfall_contributors(
     contributors: list[ShortfallContributor] = []
 
     for invoice in invoices:
+        conditioned = condition_on_still_unpaid(
+            predictions.get(invoice.invoice_id, {}),
+            max((as_of - invoice.due_date).days, 0),
+        )
         probability_paid = probability_paid_by(
-            delay_probabilities=predictions.get(invoice.invoice_id, {}),
+            delay_probabilities=conditioned,
             due_date=invoice.due_date,
             target_day=shortfall_date,
         )

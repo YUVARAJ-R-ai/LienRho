@@ -4,6 +4,7 @@ from decimal import Decimal
 from app.canonical.models import BusinessFinancialState, CanonicalInvoice, PaymentStatus
 from app.ml_core.forecast import (
     build_forecast,
+    condition_on_still_unpaid,
     probability_paid_by,
     rank_shortfall_contributors,
 )
@@ -174,20 +175,40 @@ def test_invoice_without_a_prediction_contributes_nothing():
 
 
 def test_expected_inflow_prevents_a_shortfall_that_would_otherwise_occur():
+    """Inflow only helps if it lands before cash runs out — timing matters.
+
+    Burn here is slow enough (Rs 20k/day against a Rs 4L buffer) that the
+    breach would fall around day 21, after the invoice's 0-15 day window.
+    """
+    state = {"cash": Decimal(900000), "threshold": Decimal(500000), "expenses": Decimal(600000)}
     without = build_forecast(
-        state=_state(cash=Decimal(600000), threshold=Decimal(500000), expenses=Decimal(900000)),
+        state=_state(**state),
         invoices=[_invoice(amount=Decimal(2000000))],
         predictions={},
         as_of=AS_OF,
     )
+    # Due today, so the 0-15 day bucket is still live and can be counted.
     with_inflow = build_forecast(
-        state=_state(cash=Decimal(600000), threshold=Decimal(500000), expenses=Decimal(900000)),
-        invoices=[_invoice(amount=Decimal(2000000), due_offset=-20)],
+        state=_state(**state),
+        invoices=[_invoice(amount=Decimal(2000000), due_offset=0)],
         predictions={"INV-1": CERTAIN_FAST},
         as_of=AS_OF,
     )
     assert without.has_shortfall is True
     assert with_inflow.has_shortfall is False
+
+
+def test_inflow_arriving_after_the_breach_does_not_prevent_it():
+    """The mirror case: cash can run out before a certain payment lands."""
+    forecast = build_forecast(
+        state=_state(cash=Decimal(600000), threshold=Decimal(500000), expenses=Decimal(900000)),
+        invoices=[_invoice(amount=Decimal(2000000), due_offset=0)],
+        predictions={"INV-1": CERTAIN_FAST},
+        as_of=AS_OF,
+    )
+    assert forecast.has_shortfall is True
+    # Breach lands before the invoice's 15-day payment window closes.
+    assert forecast.shortfall_date < AS_OF + timedelta(days=15)
 
 
 # ------------------------------------------------------- FR-015 contributors
@@ -203,6 +224,7 @@ def test_contributors_ranked_by_contribution_descending():
         invoices=invoices,
         predictions={i.invoice_id: CERTAIN_SLOW for i in invoices},
         shortfall_date=AS_OF + timedelta(days=20),
+        as_of=AS_OF,
     )
     amounts = [c.contribution for c in ranked]
     assert amounts == sorted(amounts, reverse=True)
@@ -210,22 +232,25 @@ def test_contributors_ranked_by_contribution_descending():
 
 
 def test_invoice_certain_to_arrive_in_time_is_not_a_contributor():
+    # Not yet due, so its fast bucket survives conditioning and it lands in time.
     ranked = rank_shortfall_contributors(
-        invoices=[_invoice("INV-A", Decimal(500000), due_offset=-20)],
+        invoices=[_invoice("INV-A", Decimal(500000), due_offset=0)],
         predictions={"INV-A": CERTAIN_FAST},
-        shortfall_date=AS_OF + timedelta(days=10),
+        shortfall_date=AS_OF + timedelta(days=16),
+        as_of=AS_OF,
     )
     assert ranked == []
 
 
 def test_large_likely_invoice_ranks_below_smaller_unlikely_one():
     # Contribution is amount x probability-unpaid, not raw amount.
-    likely_big = _invoice("INV-BIG", Decimal(1000000), due_offset=-20)
+    likely_big = _invoice("INV-BIG", Decimal(1000000), due_offset=0)
     unlikely_small = _invoice("INV-SMALL", Decimal(300000))
     ranked = rank_shortfall_contributors(
         invoices=[likely_big, unlikely_small],
         predictions={"INV-BIG": CERTAIN_FAST, "INV-SMALL": CERTAIN_SLOW},
         shortfall_date=AS_OF + timedelta(days=16),
+        as_of=AS_OF,
     )
     assert ranked[0].invoice_id == "INV-SMALL"
 
@@ -250,3 +275,57 @@ def test_no_contributors_when_there_is_no_shortfall():
         as_of=AS_OF,
     )
     assert forecast.contributors == []
+
+
+# ------------------------------------------- conditioning on still-being-unpaid
+
+
+def test_conditioning_is_a_no_op_before_the_due_date():
+    assert condition_on_still_unpaid(SPLIT, 0) == SPLIT
+
+
+def test_elapsed_bucket_mass_is_removed_and_redistributed():
+    # 20 days overdue means "paid within 0-15 days" has already been falsified.
+    conditioned = condition_on_still_unpaid(SPLIT, 20)
+    assert conditioned["0-15 days"] == 0.0
+    assert abs(sum(conditioned.values()) - 1.0) < 1e-9
+    # Surviving buckets keep their relative proportions.
+    assert conditioned["16-30 days"] > SPLIT["16-30 days"]
+
+
+def test_invoice_past_every_bucket_is_certainly_in_the_open_ended_one():
+    conditioned = condition_on_still_unpaid(SPLIT, 90)
+    assert conditioned[">45 days"] == 1.0
+
+
+def test_conditioning_prevents_counting_cash_that_never_arrived():
+    """The bug this guards: an overdue invoice paying its elapsed bucket as inflow.
+
+    An invoice 40 days overdue whose model output is mostly "0-15 days" must not
+    contribute that mass — we can observe it did not arrive in that window.
+    """
+    overdue = _invoice(amount=Decimal(1000000), due_offset=-40)
+    forecast = build_forecast(
+        state=_state(),
+        invoices=[overdue],
+        predictions={"INV-1": CERTAIN_FAST},
+        as_of=AS_OF,
+    )
+    assert forecast.points[0].expected_inflow_to_date == Decimal("0.00")
+
+
+def test_conditioned_forecast_is_more_conservative_than_unconditioned():
+    overdue = _invoice(amount=Decimal(1000000), due_offset=-35)
+    forecast = build_forecast(
+        state=_state(),
+        invoices=[overdue],
+        predictions={"INV-1": SPLIT},
+        as_of=AS_OF,
+    )
+    naive = probability_paid_by(
+        delay_probabilities=SPLIT,
+        due_date=overdue.due_date,
+        target_day=AS_OF + timedelta(days=30),
+    )
+    conditioned_inflow = float(forecast.points[-1].expected_inflow_to_date)
+    assert conditioned_inflow < naive * 1000000
