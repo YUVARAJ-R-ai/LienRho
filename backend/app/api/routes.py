@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from app.api.schemas import (
     ActionQueueItemOut,
     AgentFindingsOut,
+    AuditEntryOut,
     CashForecastOut,
     ContributingInvoiceOut,
     DelayPredictionOut,
@@ -197,12 +198,12 @@ def investigation(invoice_id: str) -> InvestigationOut:
         reason=rec.reason,
         approval_state=rec.approval_state.value,
         audit_trail=[
-            {
-                "timestamp": e.timestamp,
-                "decidedBy": e.decided_by,
-                "what": e.what,
-                "why": e.why,
-            }
+            AuditEntryOut(
+                timestamp=e.timestamp,
+                decided_by=e.decided_by,
+                what=e.what,
+                why=e.why,
+            )
             for e in rec.audit_trail
         ],
     )
