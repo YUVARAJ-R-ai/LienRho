@@ -295,3 +295,72 @@ def test_audit_trail_cites_the_deterministic_functions_by_name():
 def test_days_overdue_is_never_negative_for_a_future_due_date():
     rec = _recommend(invoice=_invoice(days_overdue=-10))
     assert rec.days_overdue == 0
+
+
+# ------------------------------------------------- promise credibility (FR-007)
+
+
+def test_credible_promise_softens_to_follow_up():
+    action, reason = decide_action(
+        statutory_flag=False,
+        treds_eligible=False,
+        probability_over_45=0.8,
+        contributes_to_shortfall=False,
+        payment_promise=True,
+        promise_is_credible=True,
+    )
+    assert action is RecommendedAction.FOLLOW_UP
+    assert "promised" in reason.lower()
+
+
+def test_incredible_promise_does_not_suppress_escalation():
+    """A serial defaulter's fourth promise must not buy them more time.
+
+    This is the case the Investigator exists for: the text says "we will settle
+    fully", the history says three prior promises were broken.
+    """
+    action, reason = decide_action(
+        statutory_flag=True,
+        treds_eligible=False,
+        probability_over_45=0.9,
+        contributes_to_shortfall=False,
+        payment_promise=True,
+        promise_is_credible=False,
+    )
+    assert action is RecommendedAction.ESCALATE
+    assert "not paid" in reason.lower() or "promised before" in reason.lower()
+
+
+def test_incredible_promise_falls_through_to_risk_based_follow_up():
+    # No statutory breach, so it stays a follow-up — but not because of the promise.
+    action, reason = decide_action(
+        statutory_flag=False,
+        treds_eligible=False,
+        probability_over_45=0.85,
+        contributes_to_shortfall=False,
+        payment_promise=True,
+        promise_is_credible=False,
+    )
+    assert action is RecommendedAction.FOLLOW_UP
+    assert "promised" not in reason.lower()
+
+
+def test_dispute_still_outranks_an_incredible_promise():
+    action, reason = decide_action(
+        statutory_flag=True,
+        treds_eligible=True,
+        probability_over_45=0.9,
+        contributes_to_shortfall=True,
+        shortfall_projected=True,
+        payment_promise=True,
+        promise_is_credible=False,
+        dispute_detected=True,
+    )
+    assert action is RecommendedAction.FOLLOW_UP
+    assert "dispute" in reason.lower()
+
+
+def test_findings_summary_appears_in_the_audit_trail():
+    rec = _recommend(findings_summary="Payment promised for 2026-08-21, no dispute on record")
+    agent_entries = [e for e in rec.audit_trail if e.decided_by == "AGENT"]
+    assert any("Payment promised" in e.what for e in agent_entries)

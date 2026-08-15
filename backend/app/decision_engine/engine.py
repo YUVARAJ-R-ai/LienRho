@@ -90,6 +90,7 @@ def decide_action(
     contributes_to_shortfall: bool,
     shortfall_projected: bool = False,
     payment_promise: bool = False,
+    promise_is_credible: bool = True,
     dispute_detected: bool = False,
 ) -> tuple[RecommendedAction, str]:
     """Choose Track A/B/C for one invoice (FR-008, prd.md §14).
@@ -104,6 +105,11 @@ def decide_action(
     finance. Requiring the invoice to be the cause had it backwards.
 
     Discounting still isn't free, so with no shortfall projected a reminder wins.
+
+    A promise only softens the recommendation when it is *credible*. A customer
+    who has broken three prior promises making a fourth is evidence of a
+    pattern, not of intent to pay — treating those alike is exactly the mistake
+    the Investigator exists to prevent.
     """
     if dispute_detected:
         # A disputed invoice must not be escalated or financed - the underlying
@@ -114,6 +120,15 @@ def decide_action(
         )
 
     if statutory_flag:
+        if payment_promise and not promise_is_credible:
+            return (
+                RecommendedAction.ESCALATE,
+                (
+                    "MSMED statutory threshold crossed; the customer has promised "
+                    "before and not paid, so the latest assurance does not justify "
+                    "waiting (Track C)"
+                ),
+            )
         return (
             RecommendedAction.ESCALATE,
             "MSMED statutory threshold crossed with no payment promise on record (Track C)",
@@ -125,7 +140,7 @@ def decide_action(
             "TReDS eligible and can be discounted to close the projected cash shortfall (Track B)",
         )
 
-    if payment_promise:
+    if payment_promise and promise_is_credible:
         return (
             RecommendedAction.FOLLOW_UP,
             "Payment promised and no dispute on record — a reminder should suffice (Track A)",
@@ -200,7 +215,9 @@ def build_recommendation(
     portfolio_max_amount: Decimal,
     shortfall_projected: bool = False,
     payment_promise: bool = False,
+    promise_is_credible: bool = True,
     dispute_detected: bool = False,
+    findings_summary: str | None = None,
 ) -> ActionRecommendation:
     """Assemble one queue item, including the audit trail behind it."""
     days_overdue = max((as_of - invoice.due_date).days, 0)
@@ -212,6 +229,7 @@ def build_recommendation(
         contributes_to_shortfall=contributes_to_shortfall,
         shortfall_projected=shortfall_projected,
         payment_promise=payment_promise,
+        promise_is_credible=promise_is_credible,
         dispute_detected=dispute_detected,
     )
     score = score_priority(
@@ -241,6 +259,15 @@ def build_recommendation(
             decided_by="RULES",
             what=f"statutory_flag={statutory_flag}, treds_eligible={treds_eligible}",
             why=f"check_msmed_threshold(): {statutory_reason}; check_treds_eligibility(): {treds_reason}",
+        ),
+        AuditEntry(
+            timestamp=timestamp,
+            decided_by="AGENT",
+            what=(
+                findings_summary
+                or "No communication evidence available"
+            ),
+            why="Receivables Investigator read the customer correspondence",
         ),
         AuditEntry(
             timestamp=timestamp,

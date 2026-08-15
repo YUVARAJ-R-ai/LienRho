@@ -14,6 +14,8 @@ from datetime import date
 from decimal import Decimal
 from functools import lru_cache
 
+from app.agents.investigator import get_investigator
+from app.data.communications import build_threads
 from app.data.synthetic import AS_OF, generate_dataset
 from app.decision_engine.engine import (
     ActionRecommendation,
@@ -110,6 +112,18 @@ def build_action_queue(as_of: date = AS_OF) -> list[ActionRecommendation]:
 
     portfolio_max = max((i.invoice_amount for i in data.invoices), default=Decimal(1))
 
+    # Communication evidence (FR-007). The rule-based investigator runs with no
+    # external dependency, so this layer works before OQ-02 resolves.
+    threads = build_threads(data.invoices)
+    investigator = get_investigator()
+    findings = {
+        invoice.invoice_id: investigator.investigate(
+            threads[invoice.invoice_id], as_of=as_of
+        )
+        for invoice in data.invoices
+        if invoice.invoice_id in threads
+    }
+
     recommendations = []
     for invoice in data.invoices:
         acceptance = invoice.acceptance_date or invoice.invoice_date
@@ -149,6 +163,16 @@ def build_action_queue(as_of: date = AS_OF) -> list[ActionRecommendation]:
                 contributes_to_shortfall=invoice.invoice_id in shortfall_ids,
                 shortfall_projected=forecast.has_shortfall,
                 portfolio_max_amount=portfolio_max,
+                payment_promise=_finding(findings, invoice).payment_promise
+                if _finding(findings, invoice)
+                else False,
+                promise_is_credible=_finding(findings, invoice).promise_is_credible
+                if _finding(findings, invoice)
+                else True,
+                dispute_detected=_finding(findings, invoice).dispute_detected
+                if _finding(findings, invoice)
+                else False,
+                findings_summary=_summarize_findings(_finding(findings, invoice)),
             )
         )
 
@@ -257,3 +281,37 @@ def get_investigation(invoice_id: str, as_of: date = AS_OF) -> dict | None:
         "statutory_interest": statutory_interest,
         "treds": treds,
     }
+
+
+def _finding(findings: dict, invoice):
+    return findings.get(invoice.invoice_id)
+
+
+def _summarize_findings(finding) -> str | None:
+    """One audit-trail line describing what the Investigator concluded."""
+    if finding is None:
+        return None
+
+    if finding.dispute_detected:
+        return f"Dispute detected — {finding.dispute_summary or 'customer contests the invoice'}"
+
+    if finding.payment_promise:
+        when = f" for {finding.promised_date}" if finding.promised_date else ""
+        if not finding.promise_is_credible:
+            return (
+                f"Payment promised{when}, but {finding.prior_broken_promises} prior "
+                "promise(s) were not kept"
+            )
+        return f"Payment promised{when}, no dispute on record"
+
+    return "No payment promise or dispute found in correspondence"
+
+
+def get_findings(invoice_id: str, as_of: date = AS_OF):
+    """Investigator findings for one invoice, for the investigation screen."""
+    data = _load_portfolio()
+    threads = build_threads(data.invoices)
+    thread = threads.get(invoice_id)
+    if thread is None:
+        return None
+    return get_investigator().investigate(thread, as_of=as_of)
