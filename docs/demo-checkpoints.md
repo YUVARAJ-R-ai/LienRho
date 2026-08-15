@@ -11,7 +11,7 @@ Two rules make this work:
 |---|---|---|---|
 | 0 | "Tally says you're owed ₹42.6L. We say what to do today." | ✅ done | — |
 | 1 | "It reads the conversations too." | ✅ done | — |
-| 2 | "The LLM picks strategy but never touches the numbers." | Sun night | Demo CP1 |
+| 2 | "The LLM picks strategy but never touches the numbers." | ✅ done | — |
 | 3 | "And here's the actual dossier — after you approve." | Mon afternoon | Demo CP2 |
 | 4 | "Validated against 10 years of real invoices." | Mon 6pm hard stop | Skip entirely |
 | 5 | Freeze + rehearse | Mon night | — |
@@ -42,15 +42,21 @@ Two rules make this work:
 
 **Note:** the synthetic threads need the same anti-leakage discipline as the delay data (see ADR-004). A thread should not be a restatement of the label.
 
-## CP2 — The defensibility story
+## CP2 — The defensibility story ✅
 
-**Delivers:** Recovery Strategy as a LangGraph agent calling the rules engine as tools (FR-008, issue #13).
+**Status:** done. Tag `cp2-tool-boundary`.
 
-**Click path:** show the trace — the LLM selected ESCALATE, but the ₹5,840 came from `calculate_interest()`, not the model.
+**Delivers:** the agent tool boundary (`agents/tools.py`) and the Recovery Strategy agent over it (`agents/strategy.py`), with every call recorded and surfaced.
 
-**Why it matters most:** this is ADR-002 made visible. For a finance audience it's the strongest single moment in the demo — the answer to "how do I know it didn't hallucinate the number."
+**Click path:** open INV-1042 → scroll to the audit trail → the `TOOL` entries read `check_msmed_threshold() → statutory_flag=True, days_overdue=51` and `calculate_interest() → interest=5840.07`.
 
-**Keep the fallback.** `decide_action()` stays as the deterministic path so a dead API key degrades the demo instead of ending it.
+**The line to say:** *"the agent chose to escalate — but it never calculated that ₹5,840. It called this function, and here's the call."*
+
+**Why it matters most:** ADR-002 stops being an assertion and becomes something a judge can read off the screen. For a finance audience it's the answer to "how do I know it didn't hallucinate the number."
+
+**What's deterministic today:** `RuleBasedStrategist` makes the selection. The tool boundary, the recording, and the trace are real and are what the LLM will use unchanged — `LLMStrategist` swaps one class. So the defensibility story is *already true*; the model just isn't the one exercising it yet. Say it that way rather than implying an LLM is running.
+
+**Remaining for #13:** bind `TOOL_SCHEMAS` to a LangGraph node, loop until the model stops requesting tools, validate the output, and fall through to `RuleBasedStrategist` on any failure.
 
 ## CP3 — Closing the loop
 
