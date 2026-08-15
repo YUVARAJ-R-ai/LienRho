@@ -154,6 +154,9 @@ Full detail, acceptance criteria, and rationale: [`docs/inception.md`](docs/ince
 │       └── lib/                 — types, formatters, mock data
 ├── docs/
 │   ├── inception.md             — stakeholders, scope, constraints, FRs/NFRs, ADRs, open questions
+│   ├── implementation-status.md — per-requirement state: built vs. specified
+│   ├── model-card.md            — model metrics, features, limitations
+│   ├── demo-checkpoints.md      — phased plan,every checkpoint independently demoable
 │   ├── framework-plan.md        — repo layout + build-phase ordering
 │   ├── _id-registry.md          — append-only ledger of every STK/FR/NFR/CON/ADR/... ID
 │   └── presentation/            — pitch deck (.pptx)
@@ -169,6 +172,10 @@ Full detail, acceptance criteria, and rationale: [`docs/inception.md`](docs/ince
 | [`docs/inception.md`](docs/inception.md) | Source of truth: stakeholders, scope/anti-goals, constraints (`CON-nn`), assumptions (`ASM-nn`), functional requirements (`FR-nnn`), non-functional requirements (`NFR-nnn`), architecture, ADRs, open questions (`OQ-nn`) |
 | [`prd.md`](prd.md) | The original, more narrative product requirements document |
 | [`indian_agentic_finance_hackathon_research.md`](indian_agentic_finance_hackathon_research.md) | Research comparing candidate hackathon ideas and why the receivables-recovery direction won |
+| [`docs/implementation-status.md`](docs/implementation-status.md) | Per-FR/NFR state — what's actually built vs. specified |
+| [`docs/model-card.md`](docs/model-card.md) | Model metrics, features, explainability approach, and limitations |
+| [`docs/demo-checkpoints.md`](docs/demo-checkpoints.md) | Phased build plan where every checkpoint is independently demoable |
+| [`docs/framework-plan.md`](docs/framework-plan.md) | Repo layout, build-phase ordering, and what that ordering got wrong |
 | [`docs/_id-registry.md`](docs/_id-registry.md) | Append-only registry of every requirement/decision ID ever assigned — IDs are never reused or renumbered |
 
 If `docs/inception.md` and `prd.md` ever disagree, `docs/inception.md` is authoritative (it explicitly supersedes narrative sections of the PRD where they diverge).
