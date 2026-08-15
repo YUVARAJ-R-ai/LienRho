@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getInvestigation } from "@/lib/mockData";
+import { getInvestigation } from "@/lib/api";
 import { formatFullCurrency, formatDate, formatPercent } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -20,7 +20,7 @@ export default async function InvoiceInvestigationPage({
   params: Promise<{ invoiceId: string }>;
 }) {
   const { invoiceId } = await params;
-  const data = getInvestigation(invoiceId);
+  const data = await getInvestigation(invoiceId);
 
   if (!data) notFound();
 

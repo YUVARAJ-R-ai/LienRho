@@ -1,4 +1,4 @@
-import { getActionQueue, getPortfolioSummary } from "@/lib/mockData";
+import { getActionQueue, getPortfolioSummary } from "@/lib/api";
 import { formatLakhs, formatShortDate } from "@/lib/format";
 import { StatCard } from "@/components/StatCard";
 import { ActionQueueCard } from "@/components/ActionQueueCard";
@@ -17,9 +17,11 @@ const tierHeadings: Record<Priority, string> = {
   FOLLOW_UP: "Follow Up",
 };
 
-export default function ActionQueuePage() {
-  const queue = getActionQueue();
-  const summary = getPortfolioSummary();
+export default async function ActionQueuePage() {
+  const [queue, summary] = await Promise.all([
+    getActionQueue(),
+    getPortfolioSummary(),
+  ]);
 
   const grouped = tierOrder.map((tier) => ({
     tier,

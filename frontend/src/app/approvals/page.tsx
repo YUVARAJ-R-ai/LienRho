@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getActionQueue } from "@/lib/mockData";
+import { getActionQueue } from "@/lib/api";
 import { formatLakhs } from "@/lib/format";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -9,8 +9,8 @@ import { ActionBadge, PriorityBadge } from "@/components/Badge";
 // this screen exists so the human gate is a deliberate, reviewable step rather
 // than something buried inside each invoice page.
 
-export default function ApprovalsPage() {
-  const pending = getActionQueue().filter(
+export default async function ApprovalsPage() {
+  const pending = (await getActionQueue()).filter(
     (item) => item.approvalState === "PENDING_APPROVAL",
   );
 

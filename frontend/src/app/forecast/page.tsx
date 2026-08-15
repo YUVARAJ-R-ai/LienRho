@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getCashForecast } from "@/lib/mockData";
+import { getCashForecast } from "@/lib/api";
 import { formatLakhs, formatDate } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -18,8 +18,8 @@ import { ForecastChart } from "@/components/ForecastChart";
 // the invoices driving the shortfall, ranked by contribution — that's what makes
 // the forecast actionable rather than just informative.
 
-export default function ForecastPage() {
-  const forecast = getCashForecast();
+export default async function ForecastPage() {
+  const forecast = await getCashForecast();
   const ranked = [...forecast.contributingInvoices].sort(
     (a, b) => b.contribution - a.contribution,
   );
