@@ -2,17 +2,12 @@
 
 **Source documents:** `docs/inception.md`, `docs/AGENTIC_ARCHITECTURE_REPORT.md`
 **Tech stack (CON-01, hard):** Next.js/React, FastAPI/Python, PostgreSQL, XGBoost/scikit-learn, LangGraph, Pydantic
-**Inventories consulted:**
-- `C:\ForbiddenKnowledge\atomic-capabilities\langgraph\langgraph-capabilities.md`
-- `C:\ForbiddenKnowledge\atomic-capabilities\fastapi\fastapi-capabilities.md`
-- `C:\ForbiddenKnowledge\atomic-capabilities\pydantic\pydantic-capabilities.md`
-- `C:\ForbiddenKnowledge\atomic-capabilities\langchain\langchain-capabilities.md`
 
 ---
 
 ## Framework Capabilities (Inventory-Sourced)
 
-*Read verbatim from ForbiddenKnowledge atomic-capability inventories. These are cross-cutting framework primitives — routing, validation, state management, tool calling, structured output — applicable to any Python/JS system.*
+*Read verbatim from atomic-capability inventories. These are cross-cutting framework primitives — routing, validation, state management, tool calling, structured output — applicable to any Python/JS system.*
 
 | Capability ID | Capability (exact text from inventory) | Framework |
 |---|---|---|
