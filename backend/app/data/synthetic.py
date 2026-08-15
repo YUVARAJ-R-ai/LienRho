@@ -5,20 +5,25 @@ trains on generated data. Two things matter for that to be honest:
 
 1. The portfolio has to hit the reference scenario in prd.md §37 — 30 invoices,
    Rs 42.6L total, and the three hand-built cases A/B/C that the demo narrates.
-2. Payment behaviour has to be *learnable*. If delays were uniformly random the
-   model would have nothing to find and its metrics would be meaningless. So
-   each customer gets a payment profile, and actual delays are drawn around that
-   profile — the signal the model is meant to recover.
+2. Payment behaviour has to be learnable *without being leaked*. Delays come
+   from a multi-factor latent process (customer tendency, invoice size, fiscal
+   seasonality, occasional disputes) rather than a single exposed parameter —
+   see `sample_delay`. The customer's `average_delay_days` is then computed
+   from observed history, exactly as a real system would derive it. The model
+   therefore has to learn a real but imperfect relationship instead of
+   rediscovering a constant we handed it.
 
 Generation is seeded, so the dataset is identical across runs and machines.
 """
 
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
+from statistics import mean
 
 from app.canonical.models import (
     CanonicalCustomer,
@@ -148,6 +153,19 @@ def generate_dataset(
 ) -> GeneratedDataset:
     """Build the full demo portfolio. Deterministic for a given seed."""
     rng = random.Random(seed)
+    profiles_by_id = {p.customer_id: p for p in CUSTOMER_PROFILES}
+
+    # History first: the customer's average delay must be *observed* from past
+    # payments, not copied from the generating parameter. A real system only
+    # ever has the empirical figure, and handing the model the true parameter
+    # would leak the label (see sample_delay).
+    payments = _build_payment_history(
+        org_id=org_id, profiles=profiles_by_id, as_of=as_of, rng=rng
+    )
+
+    observed_delays: dict[str, list[int]] = {}
+    for p in payments:
+        observed_delays.setdefault(p.customer_id, []).append(p.days_delayed)
 
     customers = [
         CanonicalCustomer(
@@ -156,7 +174,11 @@ def generate_dataset(
             customer_name=p.name,
             industry=p.industry,
             customer_type=p.customer_type,
-            average_delay_days=p.mean_delay_days,
+            average_delay_days=(
+                round(mean(observed_delays[p.customer_id]), 1)
+                if observed_delays.get(p.customer_id)
+                else None
+            ),
             relationship_duration_days=p.relationship_days,
             treds_status="PARTICIPANT" if p.participates_in_treds else "NON_PARTICIPANT",
         )
@@ -179,7 +201,6 @@ def generate_dataset(
     remaining_total = TARGET_TOTAL - sum(i.invoice_amount for i in invoices)
     amounts = _split_amount(remaining_total, remaining_count, rng)
 
-    profiles_by_id = {p.customer_id: p for p in CUSTOMER_PROFILES}
     for n, amount in enumerate(amounts, start=1):
         profile = rng.choice(CUSTOMER_PROFILES)
         # Age each invoice so the portfolio spans recent and long-overdue work.
@@ -197,10 +218,6 @@ def generate_dataset(
                 as_of=as_of,
             )
         )
-
-    payments = _build_payment_history(
-        org_id=org_id, profiles=profiles_by_id, as_of=as_of, rng=rng
-    )
 
     return GeneratedDataset(customers=customers, invoices=invoices, payments=payments)
 
@@ -237,19 +254,68 @@ def _build_invoice(
     )
 
 
+def sample_delay(
+    *,
+    profile: CustomerProfile,
+    invoice_amount: Decimal,
+    due_date: date,
+    rng: random.Random,
+) -> int:
+    """Draw an actual payment delay from a multi-factor latent process.
+
+    This deliberately does NOT simply return `gauss(profile.mean_delay_days)`.
+
+    If the delay were drawn from a single customer parameter and that same
+    parameter were then exposed as a feature, the model would just recover the
+    generator and post a near-perfect ROC-AUC that means nothing — it would be
+    rediscovering our own constant, not learning payment behaviour. NFR-005's
+    quality gate has to be falsifiable, so the label depends on several factors
+    that no single feature reveals:
+
+    - the customer's latent tendency (partially observable via their history)
+    - invoice size: larger invoices clear more slowly
+    - fiscal seasonality: Indian FY ends 31 March, so March clears faster and
+      April/May run slower
+    - occasional disputes, which produce a heavy tail no smooth feature predicts
+
+    The result is a genuine but imperfect relationship — the model has to work,
+    and its score reflects learnable structure rather than a leaked parameter.
+    """
+    delay = rng.gauss(profile.mean_delay_days, profile.delay_spread_days)
+
+    # Larger invoices need more approvals; effect grows with log of amount.
+    size_factor = math.log10(max(float(invoice_amount), 1.0)) - 5.0  # ~0 at Rs 1L
+    delay += size_factor * 6.0
+
+    # Indian fiscal year ends 31 March: buyers clear dues in March, then go slow.
+    if due_date.month == 3:
+        delay -= 7.0
+    elif due_date.month in (4, 5):
+        delay += 5.0
+    # Festival season (Oct-Nov) slows collections.
+    elif due_date.month in (10, 11):
+        delay += 4.0
+
+    # Disputes: rare, heavy-tailed, and not predictable from the smooth features.
+    if rng.random() < 0.08:
+        delay += rng.uniform(25, 55)
+
+    return max(round(delay), 0)
+
+
 def _build_payment_history(
     *,
     org_id: str,
     profiles: dict[str, CustomerProfile],
     as_of: date,
     rng: random.Random,
-    invoices_per_customer: int = 8,
+    invoices_per_customer: int = 40,
 ) -> list[CanonicalPayment]:
-    """Settled invoices from the past year.
+    """Settled invoices from the past few years — the model's training set.
 
-    This is the model's training signal: each customer's historical delays
-    cluster around their profile, so a model can learn "this customer pays
-    late" rather than memorising invoice IDs.
+    Volume matters here: a few dozen rows can't support an honest train/test
+    split, so this generates enough history per customer for the held-out
+    evaluation NFR-005 requires.
     """
     payments: list[CanonicalPayment] = []
     counter = 0
@@ -257,9 +323,12 @@ def _build_payment_history(
     for profile in profiles.values():
         for n in range(invoices_per_customer):
             counter += 1
-            # Spread historical invoices back across roughly the last year.
-            due = as_of - timedelta(days=60 + n * 38 + rng.randint(0, 12))
-            delay = max(int(rng.gauss(profile.mean_delay_days, profile.delay_spread_days)), 0)
+            # Spread historical invoices back across roughly three years.
+            due = as_of - timedelta(days=45 + n * 26 + rng.randint(0, 20))
+            amount = Decimal(rng.randrange(50_000, 500_000, 5_000))
+            delay = sample_delay(
+                profile=profile, invoice_amount=amount, due_date=due, rng=rng
+            )
             paid_on = due + timedelta(days=delay)
 
             # Anything that would settle in the future hasn't happened yet.
@@ -274,7 +343,7 @@ def _build_payment_history(
                     due_date=due,
                     actual_payment_date=paid_on,
                     days_delayed=delay,
-                    payment_amount=Decimal(rng.randrange(50_000, 500_000, 5_000)),
+                    payment_amount=amount,
                     payment_status=PaymentStatus.PAID,
                 )
             )

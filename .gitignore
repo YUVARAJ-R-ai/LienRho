@@ -24,3 +24,6 @@ out/
 
 # uv (uv.lock IS committed — it pins exact versions for the whole team)
 .venv/
+
+# Trained model artifacts (regenerate with: uv run python -m app.ml_core.train)
+backend/app/ml_core/artifacts/
