@@ -175,6 +175,7 @@ Full detail, acceptance criteria, and rationale: [`docs/inception.md`](docs/ince
 | [`docs/implementation-status.md`](docs/implementation-status.md) | Per-FR/NFR state — what's actually built vs. specified |
 | [`docs/model-card.md`](docs/model-card.md) | Model metrics, features, explainability approach, and limitations |
 | [`docs/demo-checkpoints.md`](docs/demo-checkpoints.md) | Phased build plan where every checkpoint is independently demoable |
+| [`docs/demo-script.md`](docs/demo-script.md) | Click path and narration for the demo, with fallbacks |
 | [`docs/framework-plan.md`](docs/framework-plan.md) | Repo layout, build-phase ordering, and what that ordering got wrong |
 | [`docs/_id-registry.md`](docs/_id-registry.md) | Append-only registry of every requirement/decision ID ever assigned — IDs are never reused or renumbered |
 

@@ -74,7 +74,7 @@ Two rules make this work:
 
 ## CP5 — Freeze
 
-No new features. Tag, then rehearse the click path three times out loud and time it.
+No new features. Tag, then rehearse [`demo-script.md`](demo-script.md) three times out loud and time it. Target 3–4 minutes.
 
 ## Parallel split
 

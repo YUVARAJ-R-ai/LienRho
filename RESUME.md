@@ -53,19 +53,21 @@ Exits non-zero if the NFR-005 gate fails. Expect ROC-AUC ≈ 0.834, ECE ≈ 0.03
 The artifact is gitignored, so **every teammate must run this once** — the API
 falls back to rule-only recommendations without it.
 
-## Demo click path
+## Demo
 
-The four showcase invoices, in the order that tells the story best:
+Full click path, narration, and what to do if something breaks:
+[`docs/demo-script.md`](docs/demo-script.md). Target 3–4 minutes.
 
-| Step | Where | What to point at |
+Short version — the four showcase invoices in story order:
+
+| | Where | Beat |
 |---|---|---|
-| 1 | `/` | Ranked queue, ₹42.6L across 30 invoices, tiers |
-| 2 | `/invoice/INV-1023` | Credible promise found in WhatsApp; date extracted; softens to a reminder |
-| 3 | `/invoice/INV-1042` | Customer wrote *"we will settle fully"* — system escalates anyway, 3 prior promises unkept |
-| 4 | `/invoice/INV-1051` | Statutory threshold crossed **but** a quality dispute is open, so it declines to act |
-| 5 | `/invoice/INV-1038` | TReDS-eligible, financed to close the shortfall |
-| 6 | `/invoice/INV-1042` → audit trail | `TOOL` entries: `calculate_interest() → 5840.07`. *"The agent chose to escalate — but it never calculated that ₹5,840. It called this function."* |
-| 7 | `/forecast` | Shortfall date + the invoices driving it |
+| 1 | `/` | Ranked queue, ₹42.6L across 30 invoices |
+| 2 | `/invoice/INV-1023` | Promise found in WhatsApp, date extracted → reminder |
+| 3 | `/invoice/INV-1042` | Same words, worthless promise → escalates; `TOOL` trace shows `calculate_interest() → 5840.07` |
+| 4 | `/invoice/INV-1051` | Dispute open → declines to act |
+| 5 | `/invoice/INV-1038` | TReDS-eligible → finances to close the shortfall |
+| 6 | `/forecast` | Shortfall date + the invoices driving it |
 
 ## Where things stand
 
