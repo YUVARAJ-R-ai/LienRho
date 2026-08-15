@@ -6,9 +6,14 @@ import { FlagBadge } from "./Badge";
 // digging through raw logs. The "who decided" column is what makes the
 // deterministic-vs-LLM boundary (ADR-002) visible to the user.
 
+// TOOL entries are the evidence for ADR-002 — each one names a deterministic
+// function the agent called rather than computed itself. They're toned green
+// alongside RULES so the "not model-generated" path is visually distinct from
+// the ML prediction and the agent's judgement.
 const decidedByTone: Record<AuditEntry["decidedBy"], "neutral" | "success"> = {
   ML: "neutral",
   RULES: "success",
+  TOOL: "success",
   AGENT: "neutral",
   HUMAN: "neutral",
 };
@@ -21,7 +26,15 @@ export function AuditTrail({ entries }: { entries: AuditEntry[] }) {
           <span className="absolute -left-[3px] top-2 h-1.5 w-1.5 rounded-full bg-border" />
           <div className="flex flex-wrap items-center gap-2">
             <FlagBadge label={entry.decidedBy} tone={decidedByTone[entry.decidedBy]} />
-            <span className="text-sm font-medium">{entry.what}</span>
+            <span
+              className={
+                entry.decidedBy === "TOOL"
+                  ? "font-mono text-sm font-medium"
+                  : "text-sm font-medium"
+              }
+            >
+              {entry.what}
+            </span>
           </div>
           <p className="mt-0.5 text-sm text-muted-foreground">{entry.why}</p>
           <p className="mt-0.5 text-xs text-muted-foreground/70">

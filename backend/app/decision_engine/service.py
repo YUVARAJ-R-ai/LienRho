@@ -15,6 +15,7 @@ from decimal import Decimal
 from functools import lru_cache
 
 from app.agents.investigator import get_investigator
+from app.agents.strategy import StrategyContext, get_strategist
 from app.data.communications import build_threads
 from app.data.synthetic import AS_OF, generate_dataset
 from app.decision_engine.engine import (
@@ -124,6 +125,8 @@ def build_action_queue(as_of: date = AS_OF) -> list[ActionRecommendation]:
         if invoice.invoice_id in threads
     }
 
+    strategist = get_strategist()
+
     recommendations = []
     for invoice in data.invoices:
         acceptance = invoice.acceptance_date or invoice.invoice_date
@@ -147,6 +150,26 @@ def build_action_queue(as_of: date = AS_OF) -> list[ActionRecommendation]:
                 customer.treds_status == "PARTICIPANT" if customer else False
             ),
             supplier_is_msme=True,
+        )
+
+        # The strategist gathers statutory and financing facts through the tool
+        # boundary, so every figure below is traceable to a named function.
+        strategy = strategist.recommend(
+            StrategyContext(
+                invoice_id=invoice.invoice_id,
+                invoice_amount=invoice.invoice_amount,
+                due_date=invoice.due_date,
+                invoice_date=invoice.invoice_date,
+                acceptance_date=acceptance,
+                buyer_participates_in_treds=(
+                    customer.treds_status == "PARTICIPANT" if customer else False
+                ),
+                probability_over_45=probability_over_45.get(invoice.invoice_id, 0.0),
+                shortfall_projected=forecast.has_shortfall,
+                contributes_to_shortfall=invoice.invoice_id in shortfall_ids,
+                findings=_finding(findings, invoice),
+            ),
+            as_of=as_of,
         )
 
         recommendations.append(
@@ -173,6 +196,7 @@ def build_action_queue(as_of: date = AS_OF) -> list[ActionRecommendation]:
                 if _finding(findings, invoice)
                 else False,
                 findings_summary=_summarize_findings(_finding(findings, invoice)),
+                tool_trace=strategy.trace,
             )
         )
 

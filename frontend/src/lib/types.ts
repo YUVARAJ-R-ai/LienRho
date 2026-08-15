@@ -81,7 +81,7 @@ export interface InvoiceInvestigation {
 // FR-014: what was recommended, why, who decided, what happened.
 export interface AuditEntry {
   timestamp: string;
-  decidedBy: "ML" | "RULES" | "AGENT" | "HUMAN";
+  decidedBy: "ML" | "RULES" | "TOOL" | "AGENT" | "HUMAN";
   what: string;
   why: string;
 }

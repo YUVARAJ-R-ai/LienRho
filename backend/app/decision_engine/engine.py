@@ -218,6 +218,7 @@ def build_recommendation(
     promise_is_credible: bool = True,
     dispute_detected: bool = False,
     findings_summary: str | None = None,
+    tool_trace: list[str] | None = None,
 ) -> ActionRecommendation:
     """Assemble one queue item, including the audit trail behind it."""
     days_overdue = max((as_of - invoice.due_date).days, 0)
@@ -258,7 +259,22 @@ def build_recommendation(
             timestamp=timestamp,
             decided_by="RULES",
             what=f"statutory_flag={statutory_flag}, treds_eligible={treds_eligible}",
-            why=f"check_msmed_threshold(): {statutory_reason}; check_treds_eligibility(): {treds_reason}",
+            why=(
+                f"check_msmed_threshold(): {statutory_reason}; "
+                f"check_treds_eligibility(): {treds_reason}"
+            ),
+        ),
+        # One entry per deterministic function the agent called. This is what
+        # makes ADR-002 inspectable rather than merely asserted: every figure in
+        # the recommendation above traces to a named function and its arguments.
+        *(
+            AuditEntry(
+                timestamp=timestamp,
+                decided_by="TOOL",
+                what=call,
+                why="Called by the Recovery Strategy agent — deterministic, not model-generated",
+            )
+            for call in (tool_trace or [])
         ),
         AuditEntry(
             timestamp=timestamp,
