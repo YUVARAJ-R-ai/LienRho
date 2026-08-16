@@ -24,9 +24,19 @@ import re
 from abc import ABC, abstractmethod
 from datetime import date, timedelta
 
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from app.agents.llm_client import (
+    CHEAP_TIER,
+    LiteLLMChatModel,
+    LiteLLMClient,
+    LLMClient,
+)
 from app.agents.schemas import InvestigatorFindings
 from app.data.communications import (
+    PROMISE_HISTORY,
     CommunicationThread,
+    Direction,
     promise_reliability,
 )
 
@@ -216,35 +226,135 @@ class RuleBasedInvestigator(Investigator):
         return 0.6
 
 
+def render_thread(thread: CommunicationThread) -> str:
+    """Render a communication thread into prompt text (FR-007).
+
+    Only inbound messages are evidence of the customer's intent, but outbound
+    messages provide the context (what was chased, how often) that lets the
+    model weigh a reply. So the full thread is shown, dated oldest-first.
+    """
+    if not thread.messages:
+        return "No correspondence on file for this invoice."
+
+    lines = []
+    for message in sorted(thread.messages, key=lambda m: m.sent_on):
+        speaker = "customer" if message.direction is Direction.INBOUND else "us"
+        lines.append(f"{message.sent_on.isoformat()} [{message.channel.value}] {speaker}: {message.body}")
+    return "\n".join(lines)
+
+
 class LLMInvestigator(Investigator):
-    """LangGraph/LLM implementation — blocked on OQ-02.
+    """LLM implementation (OQ-02, issue #12) — a single structured-output call.
 
-    Intended shape when the provider is chosen: a single structured-output call
-    returning `InvestigatorFindings` directly, with the thread rendered into the
-    prompt and `promise_reliability` supplied as context rather than asked for
-    (it's derived from history, not from the text).
+    The thread is rendered into the prompt and `promise_reliability` is supplied
+    as *context*, not asked for — it is derived from history, and asking the
+    model to read it off the text would be both slower and wrong.
 
-    Whatever comes back must be validated against the schema and, on any failure
-    — refusal, malformed output, timeout, rate limit — fall through to
-    `RuleBasedInvestigator` rather than raising. A missing finding degrades a
+    Whatever comes back is validated against `InvestigatorFindings`. On any
+    failure — refusal, malformed output, timeout, rate limit — it falls through
+    to `RuleBasedInvestigator` rather than raising. A missing finding degrades a
     recommendation; an exception loses the whole action queue.
     """
 
-    def __init__(self, fallback: Investigator | None = None):
+    def __init__(
+        self,
+        client: LLMClient | None = None,
+        fallback: Investigator | None = None,
+    ):
+
+        self._client = client or _gateway_client()
         self._fallback = fallback or RuleBasedInvestigator()
 
     def investigate(
         self, thread: CommunicationThread, *, as_of: date
     ) -> InvestigatorFindings:
-        raise NotImplementedError(
-            "LLM provider not selected — see OQ-02. Use RuleBasedInvestigator."
+        model = LiteLLMChatModel(client=self._client, model_tier=CHEAP_TIER)
+        chain = model.with_structured_output(InvestigatorFindings)
+        try:
+            findings = chain.invoke(self._build_messages(thread, as_of=as_of))
+            return self._fill_history(findings, thread)
+        except Exception:  # noqa: BLE001 - every failure path degrades to the fallback
+            return self._fallback.investigate(thread, as_of=as_of)
+
+    def _build_messages(
+        self, thread: CommunicationThread, *, as_of: date
+    ) -> list[SystemMessage | HumanMessage]:
+        reliability = promise_reliability(thread.customer_id)
+        reliability_line = (
+            f"This customer has kept {reliability:.0%} of their past payment promises."
+            if reliability is not None
+            else "This customer has never made a prior payment promise."
+        )
+
+        return [
+            SystemMessage(
+                content=(
+                    "You read customer payment correspondence for receivables "
+                    "collection. You return findings as JSON matching the schema "
+                    "you are given. Rules:\n"
+                    "- Only messages from the customer are evidence of their intent.\n"
+                    "- A payment promise must be an explicit or clearly implied "
+                    "commitment to pay. 'Checking with accounts', 'will revert', "
+                    "acknowledgements, and hedged phrases are NOT promises.\n"
+                    "- Set promised_date ONLY when a concrete date was stated "
+                    "('Friday', 'the 21st', 'by month end' counts as vague — do not "
+                    "invent one).\n"
+                    "- A dispute requires a real quality/quantity/billing complaint, "
+                    "not a delay excuse.\n"
+                    "- Never invent evidence. Quote or closely paraphrase the "
+                    "customer's own words.\n"
+                    f"- {reliability_line}"
+                ),
+            ),
+            HumanMessage(
+                content=(
+                    f"Invoice {thread.invoice_id} for customer {thread.customer_id} "
+                    f"(as of {as_of.isoformat()}).\n\n"
+                    f"Correspondence:\n{render_thread(thread)}"
+                ),
+            ),
+        ]
+
+    def _fill_history(
+        self, findings: InvestigatorFindings, thread: CommunicationThread
+    ) -> InvestigatorFindings:
+        # The model must not invent history it was never given. Promise
+        # reliability is derived from observed data (ADR-004 discipline), so any
+        # value the model produced is discarded and the real one is filled in
+        # from history — the same source the rule-based path uses.
+        reliability = promise_reliability(thread.customer_id)
+        history = PROMISE_HISTORY.get(thread.customer_id)
+        return findings.model_copy(
+            update={
+                "promise_reliability": reliability,
+                "prior_broken_promises": (
+                    history["promises_made"] - history["promises_kept"]
+                    if history
+                    else 0
+                ),
+            }
         )
 
 
 def get_investigator() -> Investigator:
     """The investigator the application should use.
 
-    Returns the rule-based implementation while OQ-02 is open. Switching is a
-    one-line change here once a provider and key exist.
+    Returns `LLMInvestigator` once a gateway is configured (OQ-02), otherwise
+    the rule-based implementation — which is also the LLM path's fallback, so
+    nothing here ever fails because the gateway is absent.
     """
+    from app.config import settings
+
+    if settings.llm_enabled:
+        return LLMInvestigator()
     return RuleBasedInvestigator()
+
+
+def _gateway_client() -> LLMClient:
+    from app.config import settings
+
+    return LiteLLMClient(
+        gateway_url=settings.llm_gateway_url,
+        api_key=settings.llm_api_key,
+        timeout_s=settings.llm_request_timeout_s,
+    )

@@ -20,6 +20,9 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
+from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field
+
 from app.rules_engine.msmed import (
     calculate_appointed_day,
     calculate_interest,
@@ -198,6 +201,81 @@ def _jsonable(payload: dict) -> dict:
         else:
             out[key] = value
     return out
+
+
+# ---- LangChain tool wrappers -----------------------------------------------
+# The same ToolBox methods, wrapped as langchain `StructuredTool`s so the
+# framework's ToolNode can execute them in a graph. The ToolBox stays the
+# recording seam: every call still lands in `calls`/`trace`, so the LLM path's
+# audit trail is byte-identical to the rule-based path — a fallback is a
+# genuine substitute, not a different code path.
+
+
+class _MsmedArgs(BaseModel):
+    acceptance_date: date = Field(description="Invoice acceptance date (ISO)")
+    agreed_credit_days: int = Field(description="Agreed credit period in days")
+
+
+class _InterestArgs(BaseModel):
+    principal: Decimal = Field(description="Outstanding invoice amount")
+    acceptance_date: date = Field(description="Invoice acceptance date (ISO)")
+    agreed_credit_days: int = Field(description="Agreed credit period in days")
+    rbi_bank_rate: Decimal = Field(description="RBI bank rate, e.g. 0.065")
+
+
+class _TredsArgs(BaseModel):
+    invoice_amount: Decimal = Field(description="Outstanding invoice amount")
+    due_date: date = Field(description="Invoice due date (ISO)")
+    invoice_is_buyer_approved: bool = Field(description="Buyer approved the invoice")
+    buyer_participates_in_treds: bool = Field(
+        description="Buyer is a registered TReDS participant"
+    )
+
+
+class _FinancingArgs(BaseModel):
+    invoice_amount: Decimal = Field(description="Outstanding invoice amount")
+    due_date: date = Field(description="Invoice due date (ISO)")
+    annual_discount_rate: Decimal = Field(
+        description="Annual discounting rate, e.g. 0.12"
+    )
+
+
+def build_toolbox_tools(box: ToolBox) -> list[StructuredTool]:
+    """Wrap one ToolBox instance's methods as langchain tools.
+
+    Args arrive JSON-typed (dates as ISO strings, money as numbers); pydantic
+    coerces them to `date`/`Decimal` before the ToolBox method runs.
+    """
+
+    def _wrap(name: str, method_name: str, args: type[BaseModel]) -> StructuredTool:
+        method = getattr(box, method_name)
+
+        def _run(**kwargs: Any) -> dict[str, Any]:
+            result = method(**kwargs)
+            if isinstance(result, Decimal):
+                result = {"interest": result}
+            return _jsonable(result)
+
+        return StructuredTool.from_function(
+            func=_run,
+            name=name,
+            description=_description(name),
+            args_schema=args,
+        )
+
+    return [
+        _wrap("check_msmed_threshold", "msmed_threshold", _MsmedArgs),
+        _wrap("calculate_interest", "statutory_interest", _InterestArgs),
+        _wrap("check_treds_eligibility", "treds_eligibility", _TredsArgs),
+        _wrap("simulate_financing", "financing_terms", _FinancingArgs),
+    ]
+
+
+def _description(name: str) -> str:
+    for schema in TOOL_SCHEMAS:
+        if schema["name"] == name:
+            return schema["description"]
+    return name
 
 
 # Schemas describing each tool to a language model. Kept beside the

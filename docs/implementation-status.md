@@ -14,8 +14,8 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 | FR-004 | Forecast 30-day cash position | ✅ | `ml_core/forecast.py` | Probabilistic and conditioned on invoices still being unpaid (ADR-005) |
 | FR-005 | MSMED statutory threshold check | ✅ | `rules_engine/msmed.py` | Deterministic. 44/45-day boundary tested. Counts from the §15 appointed day |
 | FR-006 | TReDS eligibility | ✅ | `rules_engine/treds.py` | Deterministic, returns every failing condition rather than the first |
-| FR-007 | Investigate customer communications | ✅ | `agents/investigator.py`, `data/communications.py` | Deterministic implementation runs today; `LLMInvestigator` is stubbed behind the same interface and unblocks on `OQ-02`. Findings include promise *credibility*, not just presence |
-| FR-008 | Recommend a recovery strategy | 🟡 | `agents/strategy.py`, `agents/tools.py` | Track A/B/C selected over a recorded tool boundary; weighs promise credibility and disputes. Deterministic today — `LLMStrategist` swaps one class once `OQ-02` resolves (#13) |
+| FR-007 | Investigate customer communications | ✅ | `agents/investigator.py`, `data/communications.py` | Deterministic implementation runs today and is the fallback; `LLMInvestigator` (structured-output via `LiteLLMChatModel`) is implemented and swaps in when `llm_enabled` (#13). Findings include promise *credibility*, not just presence |
+| FR-008 | Recommend a recovery strategy | 🟡 | `agents/strategy.py`, `agents/tools.py` | Track A/B/C selected over a recorded tool boundary; weighs promise credibility and disputes. Deterministic today; `LLMStrategist` (LangGraph `create_agent` tool loop) is implemented behind the same interface and swaps in when `llm_enabled` (#13) |
 | FR-009 | Prioritize into a daily action queue | ✅ | `decision_engine/engine.py`, `api/routes.py` | Tiered, ordered by descending value within tier |
 | FR-010 | Human approval before sensitive actions | 🟡 | `decision_engine/engine.py`, `ApprovalPanel.tsx` | Gate enforced by `assert_executable()`; UI state is local-only and resets on restart |
 | FR-011 | Generate draft outreach messages | ⬜ | — | #15 |
@@ -47,7 +47,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 | ASM-04 | **Unresolved** — no LLM provider chosen. No longer blocks FR-007: the rule-based investigator ships behind the same interface. Still blocks #13 |
 | ASM-05 | Holding — `org_id` present on every table; no multi-org UI |
 | OQ-01 | Defaulting to drafted-in-UI |
-| OQ-02 | **Open.** No longer blocks FR-007 (deterministic fallback). Still blocks the LLM Strategy agent (#13) |
+| OQ-02 | **Open.** Both LLM agents (`LLMInvestigator`, `LLMStrategist`) are implemented and tested against `MockLLMClient`; OQ-02 is now only the deployment choice of provider/model/key, plus flipping `llm_enabled` |
 | OQ-03 | Schema field only, no multi-org UI |
 | OQ-04 | Open — no baseline measured |
 
@@ -64,7 +64,7 @@ synthetic portfolio (30 invoices, ₹42.6L) + communication threads
   → four Next.js screens reading the live API
 ```
 
-Backend: 157 tests passing, ruff clean. Frontend: typechecks, lints, builds.
+Backend: 175 tests passing, ruff clean. Frontend: typechecks, lints, builds.
 
 ### The four showcase cases
 

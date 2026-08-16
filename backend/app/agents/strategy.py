@@ -18,13 +18,29 @@ is meaningful evidence rather than decoration.
 
 from __future__ import annotations
 
+import json
+import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
+from langchain.agents import create_agent
+from langchain_core.messages import HumanMessage
+from langgraph.errors import GraphRecursionError
+
+from app.agents.llm_client import (
+    FRONTIER_TIER,
+    LiteLLMChatModel,
+    LiteLLMClient,
+    LLMClient,
+    get_langfuse_handler,
+)
 from app.agents.schemas import InvestigatorFindings, StrategyRecommendation
-from app.agents.tools import ToolBox
+from app.agents.tools import ToolBox, build_toolbox_tools
+
+logger = logging.getLogger(__name__)
 
 # RBI bank rate applicable to the demo period. A real deployment reads the rate
 # notified for the period being claimed rather than a constant.
@@ -64,6 +80,7 @@ class StrategyResult:
     statutory_interest: Decimal | None
     treds_eligible: bool
     treds_reason: str
+    fallback_reason: str | None = None
 
     @property
     def trace(self) -> list[str]:
@@ -242,36 +259,215 @@ class RuleBasedStrategist(Strategist):
         )
 
 
+# ---- LLMStrategist ---------------------------------------------------------
+
+
 class LLMStrategist(Strategist):
-    """LangGraph/LLM implementation — blocked on OQ-02.
+    """LangGraph/LLM implementation (OQ-02, issue #13).
 
-    Intended shape: a LangGraph graph with a single agent node bound to
-    `TOOL_SCHEMAS`, looping until the model stops requesting tools, then
-    emitting a structured `StrategyRecommendation`.
+    A stock ReAct agent built with the framework's `create_agent`: the model is
+    the `LiteLLMChatModel` adapter, and the tools are `ToolBox` methods exposed
+    as `StructuredTool`s by `build_toolbox_tools`. Tool execution still goes
+    through `ToolBox`, so the trace is byte-identical in shape to the rule-based
+    path — which is why the fallback is a genuine substitute rather than a
+    different code path.
 
-    Two rules the implementation must hold to:
+    Two rules the implementation holds to:
 
-    1. **Never accept a statutory or financial figure from the model.** If the
-       recommendation text contains a number, it has to be one a tool returned.
-       The `ToolBox` record is what makes that checkable.
+    1. **Never accept a statutory or financial figure from the model.** The
+       model only learns those numbers by calling a tool; if it emits a
+       recommendation for a path whose required facts were never gathered, the
+       run falls through rather than trusting the text.
     2. **Fall through to `RuleBasedStrategist` on any failure** — refusal,
-       malformed output, timeout, rate limit. A degraded recommendation is
-       recoverable; a failed action queue is not.
+       malformed output, timeout, rate limit, runaway loop, or a hallucinated
+       number. A degraded recommendation is recoverable; a failed action queue
+       is not.
     """
 
-    def __init__(self, fallback: Strategist | None = None):
+    def __init__(
+        self,
+        client: LLMClient | None = None,
+        fallback: Strategist | None = None,
+    ):
+        from app.config import settings
+
+        self._client = client or _gateway_client()
         self._fallback = fallback or RuleBasedStrategist()
+        self._max_steps = settings.llm_max_steps
 
     def recommend(self, context: StrategyContext, *, as_of: date) -> StrategyResult:
-        raise NotImplementedError(
-            "LLM provider not selected — see OQ-02. Use RuleBasedStrategist."
+        tools = ToolBox(as_of=as_of)
+        model = LiteLLMChatModel(client=self._client, model_tier=FRONTIER_TIER)
+        graph = create_agent(
+            model,
+            tools=build_toolbox_tools(tools),
+            system_prompt=self._system_prompt(),
         )
+
+        thread_id = f"strategy-{context.invoice_id}-{as_of.isoformat()}"
+        handler = get_langfuse_handler()
+        config: dict[str, Any] = {
+            "configurable": {"thread_id": thread_id},
+            "metadata": {
+                "invoice_id": context.invoice_id,
+                "as_of": as_of.isoformat(),
+                "agent": "strategy",
+            },
+            # The framework counts node executions, not agent turns: each tool
+            # loop is two nodes (agent + tools). Give it headroom past the turn
+            # cap without unbinding it, and fall through on GraphRecursionError.
+            "recursion_limit": self._max_steps * 3 + 10,
+        }
+        if handler is not None:
+            config["callbacks"] = [handler]
+
+        try:
+            final = graph.invoke(
+                {"messages": [HumanMessage(self._user_message(context, as_of))]},
+                config=config,
+            )
+        except GraphRecursionError:
+            return self._fallback_with(
+                context, as_of, f"runaway loop past {self._max_steps} steps"
+            )
+        except Exception as exc:  # noqa: BLE001 - any gateway failure degrades
+            return self._fallback_with(context, as_of, f"LLM call failed: {exc}")
+
+        last = final["messages"][-1]
+        try:
+            recommendation = self._parse_recommendation(last.content or "")
+        except Exception as exc:  # noqa: BLE001 - unparseable is a fallback
+            return self._fallback_with(context, as_of, f"unparseable recommendation: {exc}")
+
+        # Rule 1 enforcement: the track must be grounded in the facts it
+        # needs, and those facts must have been gathered through a tool.
+        missing = self._facts_missing(recommendation, tools)
+        if missing:
+            return self._fallback_with(
+                context, as_of, f"recommendation cites facts never gathered: {missing}"
+            )
+
+        return StrategyResult(
+            recommendation=recommendation,
+            toolbox=tools,
+            statutory_flag=_tool_flag(tools, "check_msmed_threshold", "statutory_flag", False),
+            statutory_interest=_tool_interest(tools),
+            treds_eligible=_tool_flag(tools, "check_treds_eligibility", "eligible", False),
+            treds_reason=_tool_reason(tools, "check_treds_eligibility"),
+        )
+
+    def _fallback_with(self, context: StrategyContext, as_of: date, reason: str) -> StrategyResult:
+        logger.warning("LLMStrategist falling back to rule-based: %s", reason)
+        result = self._fallback.recommend(context, as_of=as_of)
+        return replace(result, fallback_reason=reason)
+
+    def _system_prompt(self) -> str:
+        return (
+            "You select the recovery track for ONE invoice: FOLLOW_UP, "
+            "FINANCE, or ESCALATE.\n\n"
+            "RULES (these are legal and financial, not stylistic):\n"
+            "1. NEVER compute a statutory threshold, interest figure, or "
+            "TReDS eligibility yourself. Call the provided tools — they "
+            "return authoritative values you must quote exactly.\n"
+            "2. A dispute on record blocks escalation and financing until "
+            "a human resolves it — recommend FOLLOW_UP.\n"
+            "3. A statutory breach (check_msmed_threshold -> "
+            "statutory_flag=true) outranks everything: ESCALATE, unless "
+            "there is a credible payment promise.\n"
+            "4. Financing (FINANCE) is only appropriate when the invoice "
+            "is TReDS-eligible AND a cash shortfall is projected.\n"
+            "5. With no breach, no dispute, and no financing case, a "
+            "credible promise or routine risk decides: FOLLOW_UP.\n\n"
+            "Gather the facts you need with tools, then reply with ONLY a "
+            "JSON object: {\"action\": \"FOLLOW_UP|FINANCE|ESCALATE\", "
+            "\"reason\": \"one readable sentence\", "
+            "\"deciding_factors\": [\"facts that drove the choice\"], "
+            "\"confidence\": 0.0-1.0}. Never put a figure in the JSON "
+            "that a tool did not return."
+        )
+
+    def _user_message(self, context: StrategyContext, as_of: date) -> str:
+        return (
+            f"Invoice {context.invoice_id}, as of {as_of.isoformat()}.\n"
+            f"amount: {context.invoice_amount}\n"
+            f"invoice_date: {context.invoice_date.isoformat()}\n"
+            f"due_date: {context.due_date.isoformat()}\n"
+            f"acceptance_date: {context.acceptance_date.isoformat()}\n"
+            f"agreed_credit_days: {context.agreed_credit_days}\n"
+            f"buyer_participates_in_treds: {context.buyer_participates_in_treds}\n"
+            f"probability_over_45: {context.probability_over_45:.2f}\n"
+            f"shortfall_projected: {context.shortfall_projected}\n"
+            f"contributes_to_shortfall: {context.contributes_to_shortfall}\n"
+            + (
+                "findings: "
+                + json.dumps(
+                    context.findings.model_dump(mode="json"),
+                    default=str,
+                )
+                if context.findings
+                else "findings: none on file"
+            )
+        )
+
+    def _parse_recommendation(self, content: str) -> StrategyRecommendation:
+        payload = json.loads(content)
+        if not isinstance(payload, dict):
+            raise TypeError("recommendation is not a JSON object")
+        return StrategyRecommendation.model_validate(payload)
+
+    def _facts_missing(self, recommendation: StrategyRecommendation, tools: ToolBox) -> str:
+        """Rule 1: the chosen track must be grounded in gathered facts."""
+        if not tools.called("check_msmed_threshold"):
+            return "no check_msmed_threshold call — statutory position unknown"
+        if recommendation.action == "FINANCE" and not tools.called("check_treds_eligibility"):
+            return "FINANCE recommended without a TReDS eligibility check"
+        if recommendation.action == "ESCALATE" and not tools.called("calculate_interest"):
+            return "ESCALATE recommended without the statutory interest figure"
+        return ""
+
+
+def _tool_flag(tools: ToolBox, tool: str, key: str, default: bool) -> bool:
+    for call in tools.calls:
+        if call.tool == tool and key in call.result:
+            return bool(call.result[key])
+    return default
+
+
+def _tool_interest(tools: ToolBox) -> Decimal | None:
+    for call in tools.calls:
+        if call.tool == "calculate_interest":
+            # The record is float-flattened for serialization; str() round-trips
+            # exactly rather than introducing float→Decimal drift.
+            return Decimal(str(call.result["interest"]))
+    return None
+
+
+def _tool_reason(tools: ToolBox, tool: str) -> str:
+    for call in tools.calls:
+        if call.tool == tool:
+            return str(call.result.get("reason", ""))
+    return ""
 
 
 def get_strategist() -> Strategist:
     """The strategist the application should use.
 
-    Returns the deterministic implementation while OQ-02 is open. Switching is a
-    one-line change once a provider and key exist.
+    Returns `LLMStrategist` once a gateway is configured (OQ-02), otherwise the
+    deterministic implementation — which is also the LLM path's fallback, so
+    nothing here ever fails because the gateway is absent.
     """
+    from app.config import settings
+
+    if settings.llm_enabled:
+        return LLMStrategist()
     return RuleBasedStrategist()
+
+
+def _gateway_client() -> LLMClient:
+    from app.config import settings
+
+    return LiteLLMClient(
+        gateway_url=settings.llm_gateway_url,
+        api_key=settings.llm_api_key,
+        timeout_s=settings.llm_request_timeout_s,
+    )
