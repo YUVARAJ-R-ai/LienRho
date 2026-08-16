@@ -27,7 +27,7 @@ LIENRHO plugs into the accounting software an MSME already uses — TallyPrime f
 
 It is **not** an accounting app, **not** a bookkeeping/invoicing tool, and **not** a generic finance chatbot. Tally/Zoho remain the system of record. LIENRHO only owns *derived* data: predictions, forecasts, rule-engine flags, agent findings, decisions, actions, and audit logs.
 
-> **Status: working vertical slice.** The pipeline runs end to end — synthetic portfolio → XGBoost delay predictions → deterministic MSMED/TReDS checks → probabilistic cash forecast → ranked action queue → UI, every recommendation carrying its audit trail. The LangGraph agents, the Tally connector, and the outreach/dossier generators are not built yet — see [Project status](#project-status).
+> **Status: working vertical slice.** The pipeline runs end to end — synthetic portfolio → XGBoost delay predictions → agent investigation over a recorded tool boundary → deterministic MSMED/TReDS checks → probabilistic cash forecast → ranked action queue → human approval → generated artifact, every recommendation carrying its audit trail. The agents are deterministic (an LLM has not been wired in — `OQ-02`), and the Tally connector is not built — see [Project status](#project-status).
 
 ## Quickstart
 
@@ -228,12 +228,15 @@ These affect design and are not yet resolved (see `docs/inception.md` §8 for de
 | API endpoints | ✅ Done |
 | Frontend: 4 screens, wired to live API | ✅ Done |
 | Audit trail (in-memory) | ✅ Done |
-| LangGraph agents | ⬜ Not started |
+| Receivables Investigator + Recovery Strategy agents | ✅ Done (deterministic) |
+| Agent tool boundary with recorded calls | ✅ Done |
+| Outreach drafts, mock TReDS, MSMED dossier | ✅ Done |
+| Server-side approval gate | ✅ Done (in-memory) |
+| LLM-driven agent selection | ⬜ Blocked on `OQ-02` |
 | Tally connector | ⬜ Not started |
-| Outreach, mock TReDS, dossier | ⬜ Not started |
-| Audit trail persistence to Postgres | ⬜ Not started |
+| Approval + audit trail persistence to Postgres | ⬜ Not started |
 
-The pipeline runs end to end: synthetic portfolio → XGBoost predictions → deterministic MSMED/TReDS checks → probabilistic cash forecast → ranked action queue → UI, with every recommendation carrying its ML/Rules/Agent audit trail.
+The pipeline runs end to end: synthetic portfolio → XGBoost predictions → agent investigation and strategy over a recorded tool boundary → deterministic MSMED/TReDS checks → probabilistic cash forecast → ranked action queue → human approval → generated reminder, mock TReDS submission, or MSMED dossier, with every recommendation carrying its ML/Rules/Tool/Agent audit trail.
 
 **Model quality (held-out, NFR-005 gate: PASS)** — ROC-AUC 0.834, expected calibration error 0.031, bucket accuracy 62.3% against a 25% four-class baseline. That figure is deliberately not near-perfect: the generator draws delays from a multi-factor latent process and the customer's average delay is computed from observed history, so the model has to learn a real relationship rather than recover a constant it was handed.
 
@@ -244,8 +247,8 @@ Build order and phase dependencies: [`docs/framework-plan.md`](docs/framework-pl
 - Auth is stubbed. `backend/app/db/scoping.py` trusts an unverified `X-Org-Id` header, so NFR-001 does not hold yet — the scoping helper is right, the identity feeding it isn't. Don't expose this beyond local dev (#20).
 - The frontend's `src/lib/types.ts` mirrors the backend response shapes by hand. Nothing enforces they stay in sync (#21).
 - The action queue reads the synthetic portfolio, not a live Tally sync. Swapping it means changing `_load_portfolio()` in `backend/app/decision_engine/service.py` and nothing else (#6).
-- Agent findings on the investigation screen are returned empty rather than fabricated, since the Receivables Investigator isn't built (#12).
-- Approvals are in-memory and reset on restart; persistence is outstanding.
+- The agents select deterministically. The tool boundary and its recorded trace are real and are what an LLM will use unchanged, but no model is choosing yet — say it that way (`OQ-02`, #13).
+- Approvals are in-memory and reset on restart; persistence is outstanding (#19).
 
 ## License
 

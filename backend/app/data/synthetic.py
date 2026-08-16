@@ -30,6 +30,7 @@ from app.canonical.models import (
     CanonicalInvoice,
     CanonicalPayment,
     PaymentStatus,
+    SupplierProfile,
 )
 
 DEFAULT_SEED = 727
@@ -37,6 +38,22 @@ DEFAULT_ORG_ID = "ORG-DEMO"
 
 # The demo is narrated as of this date; "days overdue" figures are relative to it.
 AS_OF = date(2026, 8, 15)
+
+# The business LIENRHO is running for. Real deployments read this from org
+# onboarding; the dossier (FR-013) needs a named filer with a registration
+# number, and refusing to invent one at generation time means having one here.
+#
+# The Udyam number is synthetic and follows the real format
+# (UDYAM-<state>-<district>-<7 digits>) so the document renders correctly. It is
+# not a live registration and must be replaced before any real filing.
+DEMO_SUPPLIER = SupplierProfile(
+    org_id=DEFAULT_ORG_ID,
+    legal_name="Rho Precision Components Pvt Ltd",
+    udyam_registration_number="UDYAM-TN-33-0042817",
+    enterprise_category="Small",
+    address="14/3 Ambattur Industrial Estate, Chennai 600058, Tamil Nadu",
+    contact_email="accounts@rhoprecision.example",
+)
 
 # prd.md §37 fixes the portfolio total at Rs 42.6L across 30 invoices.
 TARGET_TOTAL = Decimal(4260000)

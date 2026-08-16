@@ -41,7 +41,7 @@ uv run python -m app.ml_core.train          # trains the delay model (CUDA, CPU 
 uv run uvicorn app.main:app --reload        # :8000
 ./run-dev.sh start|stop|status              # or run it detached, capped to 12 cores
 
-uv run pytest -q                            # 118 tests
+uv run pytest -q                            # 206 tests
 uv run ruff check . --fix
 
 # Frontend (needs the backend running)
@@ -66,6 +66,7 @@ Check it for label leakage first (`ADR-004`). A feature must be computable *befo
 ## Known gaps worth knowing before you build on them
 
 - Auth is stubbed: `backend/app/db/scoping.py` trusts an unverified `X-Org-Id` header, so `NFR-001` does not actually hold yet (#20).
+- On macOS, `xgboost` needs `brew install libomp` — it is not a Python dependency, and without it the whole test suite errors at collection.
 - The audit trail is in memory and resets on restart (#19).
 - `frontend/src/lib/types.ts` mirrors backend response shapes by hand; nothing enforces it (#21).
 - The action queue reads the synthetic portfolio. Swapping to a live sync means changing `_load_portfolio()` in `decision_engine/service.py` and nothing else (#6).

@@ -56,6 +56,27 @@ class CanonicalPayment(BaseModel):
     payment_status: PaymentStatus
 
 
+class SupplierProfile(BaseModel):
+    """The MSME running LIENRHO — its own registration details.
+
+    Unlike everything else in this module, this does *not* come from a
+    connector: Udyam registration is establishment data captured at org
+    onboarding, not something Tally or Zoho holds. It lives here anyway because
+    it is canonical business data that more than one module needs.
+
+    Required by the escalation dossier (FR-013), which has to state who is
+    filing and under what registration — a statutory claim from an unidentified
+    supplier is not a claim.
+    """
+
+    org_id: str
+    legal_name: str
+    udyam_registration_number: str
+    enterprise_category: str  # Micro | Small | Medium, per the MSMED classification
+    address: str
+    contact_email: str
+
+
 class BusinessFinancialState(BaseModel):
     org_id: str
     as_of_date: date

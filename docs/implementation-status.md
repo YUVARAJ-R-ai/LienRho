@@ -1,6 +1,6 @@
 # Implementation status
 
-Per-requirement state as of **2026-08-15**. Requirements are defined in [`inception.md`](inception.md); this file tracks what actually exists.
+Per-requirement state as of **2026-08-16**. Requirements are defined in [`inception.md`](inception.md); this file tracks what actually exists.
 
 Legend: ✅ done · 🟡 partial · ⬜ not started
 
@@ -17,10 +17,10 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 | FR-007 | Investigate customer communications | ✅ | `agents/investigator.py`, `data/communications.py` | Deterministic implementation runs today; `LLMInvestigator` is stubbed behind the same interface and unblocks on `OQ-02`. Findings include promise *credibility*, not just presence |
 | FR-008 | Recommend a recovery strategy | 🟡 | `agents/strategy.py`, `agents/tools.py` | Track A/B/C selected over a recorded tool boundary; weighs promise credibility and disputes. Deterministic today — `LLMStrategist` swaps one class once `OQ-02` resolves (#13) |
 | FR-009 | Prioritize into a daily action queue | ✅ | `decision_engine/engine.py`, `api/routes.py` | Tiered, ordered by descending value within tier |
-| FR-010 | Human approval before sensitive actions | 🟡 | `decision_engine/engine.py`, `ApprovalPanel.tsx` | Gate enforced by `assert_executable()`; UI state is local-only and resets on restart |
-| FR-011 | Generate draft outreach messages | ⬜ | — | #15 |
-| FR-012 | Mock TReDS submission | 🟡 | `rules_engine/treds.py` | `simulate_financing()` computes the terms; the submission payload and UI are outstanding (#15) |
-| FR-013 | Statutory escalation dossier | 🟡 | `rules_engine/msmed.py` | `calculate_interest()` produces the statutory figure the dossier needs; assembly is outstanding (#15) |
+| FR-010 | Human approval before sensitive actions | 🟡 | `decision_engine/engine.py`, `decision_engine/service.py`, `ApprovalPanel.tsx` | Gate enforced by `assert_executable()` inside each generator. Decisions are now server-side and survive a queue rebuild, but the store is **in memory** and resets on restart (#19) |
+| FR-011 | Generate draft outreach messages | ✅ | `outreach/drafts.py` | Email and WhatsApp tones, referencing amount, due date, and the FR-007 evidence. Editable in the UI before send. Template implementation today; `LLMReminderDrafter` behind the same interface awaits `OQ-02` |
+| FR-012 | Mock TReDS submission | ✅ | `outreach/treds_submission.py` | Payload matches prd.md §719–725; `estimated_proceeds = amount − financing_cost` enforced on the model, not just tested. Ineligible invoices are refused rather than submitted |
+| FR-013 | Statutory escalation dossier | ✅ | `outreach/dossier.py` | All seven sections present. Interest comes through `ToolBox` so it lands in the audit trail as a recorded call. Missing evidence (proof of delivery) is stated as missing, never inferred |
 | FR-014 | Audit trail | 🟡 | `decision_engine/engine.py`, `AuditTrail.tsx` | Built and surfaced with ML/RULES/AGENT/HUMAN attribution; **in memory only**, resets on restart (#19) |
 | FR-015 | Invoices contributing to a shortfall | ✅ | `ml_core/forecast.py` | Ranked by amount × probability-still-unpaid |
 
@@ -61,10 +61,16 @@ synthetic portfolio (30 invoices, ₹42.6L) + communication threads
   → deterministic MSMED + TReDS checks
   → probabilistic 30-day cash forecast + shortfall contributors
   → ranked action queue with approval gate and audit trail
+  → human approval → generated artifact: reminder draft, mock TReDS
+    submission, or MSMED dossier
   → four Next.js screens reading the live API
 ```
 
-Backend: 157 tests passing, ruff clean. Frontend: typechecks, lints, builds.
+Backend: 206 tests passing, ruff clean. Frontend: typechecks, lints, builds.
+
+**Note for anyone setting up on macOS:** `xgboost` needs the OpenMP runtime, which
+is not a Python dependency. Without it every import of `app.ml_core` fails and
+the whole suite errors at collection. Fix: `brew install libomp`.
 
 ### The four showcase cases
 

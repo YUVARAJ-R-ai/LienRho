@@ -10,6 +10,7 @@ audit trails) to Postgres is FR-014's remaining backend work.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from functools import lru_cache
@@ -17,15 +18,23 @@ from functools import lru_cache
 from app.agents.investigator import get_investigator
 from app.agents.strategy import StrategyContext, get_strategist
 from app.data.communications import build_threads
-from app.data.synthetic import AS_OF, generate_dataset
+from app.data.synthetic import AS_OF, DEMO_SUPPLIER, generate_dataset
 from app.decision_engine.engine import (
     ActionRecommendation,
+    ApprovalState,
+    AuditEntry,
+    RecommendedAction,
+    approve,
     build_recommendation,
     rank_queue,
+    reject,
 )
 from app.ml_core.features import build_customer_stats, extract_features
 from app.ml_core.forecast import build_forecast
 from app.ml_core.model import DEFAULT_MODEL_PATH, DelayModel
+from app.outreach.dossier import EscalationDossier, build_dossier
+from app.outreach.drafts import DraftChannel, DraftContext, ReminderDraft, get_drafter
+from app.outreach.treds_submission import TredsSubmission, build_treds_submission
 from app.rules_engine.msmed import calculate_appointed_day, check_msmed_threshold
 from app.rules_engine.treds import check_treds_eligibility
 
@@ -48,6 +57,79 @@ DEMO_SUPPLIER_PAYMENTS = Decimal(2600000)
 # still be unpaid at the breach. Below this, it's a large invoice that will
 # probably arrive in time, not a cause.
 MATERIAL_SHORTFALL_RISK = 0.5
+
+
+# --------------------------------------------------------------- approvals
+
+
+@dataclass
+class _ApprovalRecord:
+    """One invoice's human decisions, replayed onto the queue as it rebuilds.
+
+    `build_action_queue` recomputes every recommendation from scratch on each
+    request, so an approval recorded on a recommendation object would vanish
+    with it. Keeping the decision here instead means the queue stays derived
+    while the human part of it persists across calls.
+
+    In memory only — it resets when the API restarts. Durable storage is #19's
+    work, and this deliberately mirrors what a row would hold so that change is
+    a swap rather than a redesign.
+    """
+
+    state: ApprovalState
+    entries: list[AuditEntry] = field(default_factory=list)
+
+
+_APPROVALS: dict[str, _ApprovalRecord] = {}
+
+
+def reset_approvals() -> None:
+    """Forget every recorded decision. For tests and demo resets."""
+    _APPROVALS.clear()
+
+
+def _apply_approval(recommendation: ActionRecommendation) -> ActionRecommendation:
+    """Replay any recorded decision onto a freshly built recommendation."""
+    record = _APPROVALS.get(recommendation.invoice_id)
+    if record is None:
+        return recommendation
+    recommendation.approval_state = record.state
+    recommendation.audit_trail.extend(record.entries)
+    return recommendation
+
+
+def decide_on_action(
+    invoice_id: str, *, approved: bool, actor: str, as_of: date = AS_OF
+) -> ActionRecommendation | None:
+    """Record an explicit human approval or rejection (FR-010, BR-APPROVAL).
+
+    Returns None when the invoice isn't in the queue. Rejecting deliberately
+    changes nothing about the invoice itself — only the recorded decision and
+    the audit trail (FR-010 AC-2).
+    """
+    recommendation = next(
+        (r for r in build_action_queue(as_of=as_of) if r.invoice_id == invoice_id), None
+    )
+    if recommendation is None:
+        return None
+
+    # Everything already on the trail was either derived this call or replayed
+    # from earlier decisions; only what the decision below appends is new.
+    prior = list(_APPROVALS[invoice_id].entries) if invoice_id in _APPROVALS else []
+    boundary = len(recommendation.audit_trail)
+
+    if approved:
+        approve(recommendation, actor=actor)
+    else:
+        reject(recommendation, actor=actor)
+
+    # Keep the full sequence, not just the latest: an approve-then-reject is two
+    # facts about who decided what, and FR-014 asks for both.
+    _APPROVALS[invoice_id] = _ApprovalRecord(
+        state=recommendation.approval_state,
+        entries=prior + recommendation.audit_trail[boundary:],
+    )
+    return recommendation
 
 
 @lru_cache(maxsize=1)
@@ -200,7 +282,7 @@ def build_action_queue(as_of: date = AS_OF) -> list[ActionRecommendation]:
             )
         )
 
-    return rank_queue(recommendations)
+    return rank_queue([_apply_approval(r) for r in recommendations])
 
 
 def get_cash_forecast(as_of: date = AS_OF):
@@ -339,3 +421,85 @@ def get_findings(invoice_id: str, as_of: date = AS_OF):
     if thread is None:
         return None
     return get_investigator().investigate(thread, as_of=as_of)
+
+
+# --------------------------------------------------------------- artifacts
+
+
+def build_draft(
+    invoice_id: str,
+    *,
+    channel: DraftChannel = DraftChannel.EMAIL,
+    as_of: date = AS_OF,
+) -> ReminderDraft | None:
+    """Draft a reminder for one invoice (FR-011).
+
+    Deliberately not gated on approval: a draft is what the user reads *before*
+    deciding, so requiring approval to see it would invert the review step this
+    whole flow exists for. The approval gate sits in front of sending, and
+    sending is the user's own action (OQ-01 → drafted-in-UI).
+    """
+    data = _load_portfolio()
+    invoice = next((i for i in data.invoices if i.invoice_id == invoice_id), None)
+    if invoice is None:
+        return None
+
+    customer = next(
+        (c for c in data.customers if c.customer_id == invoice.customer_id), None
+    )
+
+    return get_drafter().draft(
+        DraftContext(
+            invoice_id=invoice.invoice_id,
+            customer_name=customer.customer_name if customer else invoice.customer_id,
+            invoice_amount=invoice.invoice_amount,
+            due_date=invoice.due_date,
+            days_overdue=max((as_of - invoice.due_date).days, 0),
+            supplier_name=DEMO_SUPPLIER.legal_name,
+            findings=get_findings(invoice_id, as_of=as_of),
+        ),
+        channel=channel,
+    )
+
+
+def build_artifact(
+    recommendation: ActionRecommendation, *, as_of: date = AS_OF
+) -> ReminderDraft | TredsSubmission | EscalationDossier | None:
+    """The artifact this recommendation's action produces (FR-011/012/013).
+
+    Dispatches on the recommended action rather than taking a type argument, so
+    a caller cannot ask for a dossier on an invoice the system recommended a
+    reminder for. The gate lives inside each builder, not here — putting it in
+    one place upstream would mean a new builder could quietly skip it.
+    """
+    data = _load_portfolio()
+    invoice = next(
+        (i for i in data.invoices if i.invoice_id == recommendation.invoice_id), None
+    )
+    if invoice is None:
+        return None
+
+    customer = next(
+        (c for c in data.customers if c.customer_id == invoice.customer_id), None
+    )
+
+    if recommendation.recommended_action is RecommendedAction.FINANCE:
+        return build_treds_submission(
+            recommendation=recommendation,
+            invoice=invoice,
+            customer=customer,
+            as_of=as_of,
+        )
+
+    if recommendation.recommended_action is RecommendedAction.ESCALATE:
+        return build_dossier(
+            recommendation=recommendation,
+            invoice=invoice,
+            customer=customer,
+            supplier=DEMO_SUPPLIER,
+            payments=data.payments,
+            thread=build_threads(data.invoices).get(invoice.invoice_id),
+            as_of=as_of,
+        )
+
+    return build_draft(invoice.invoice_id, as_of=as_of)

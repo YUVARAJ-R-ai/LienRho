@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getInvestigation } from "@/lib/api";
+import { getArtifact, getInvestigation } from "@/lib/api";
 import { formatFullCurrency, formatDate, formatPercent } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -25,6 +25,11 @@ export default async function InvoiceInvestigationPage({
   if (!data) notFound();
 
   const { invoice, prediction, factors, rules, findings, auditTrail } = data;
+
+  // Only meaningful once the action has been approved; returns null otherwise,
+  // so an unapproved dossier still does not exist anywhere.
+  const artifact =
+    data.approvalState === "APPROVED" ? await getArtifact(invoiceId) : null;
 
   return (
     <div className="space-y-6">
@@ -60,8 +65,10 @@ export default async function InvoiceInvestigationPage({
       </Card>
 
       <ApprovalPanel
+        invoiceId={invoice.invoiceId}
         action={data.recommendedAction}
         initialState={data.approvalState}
+        initialArtifact={artifact}
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
