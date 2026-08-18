@@ -1,0 +1,74 @@
+flowchart TB
+    subgraph PIPELINE["Decision Engine — build_action_queue()  (per invoice)"]
+        direction LR
+        P1["portfolio<br/>30 invoices · ₹42.6L"]
+        P2["ML: delay probs<br/>+ cash forecast"]
+        P3["communication<br/>threads"]
+        P4["Investigator<br/>investigate() → findings"]
+        P5["Strategist<br/>recommend() → Track A/B/C"]
+        P6["ActionRecommendation<br/>+ audit trail"]
+        P7["rank_queue<br/>action queue"]
+        P1 --> P2
+        P1 --> P3
+        P2 --> P5
+        P3 --> P4
+        P4 --> P5
+        P5 --> P6
+        P6 --> P7
+    end
+
+    subgraph INV["Receivables Investigator (FR-007) — single structured-output call"]
+        direction TB
+        I1(["START"]) --> I2["render thread + promise_reliability into prompt"]
+        I2 --> I3["LLMInvestigator<br/>LiteLLM structured output"]
+        I3 --> I4["validate<br/>Pydantic: InvestigatorFindings"]
+        I4 --> I6(["END"])
+        I3 -- "refusal / malformed / timeout" --> I5["fallback<br/>RuleBasedInvestigator"]
+        I5 --> I6
+    end
+
+    subgraph STRAT["Recovery Strategy (FR-008) — LLM tool loop over ToolBox"]
+        direction TB
+        S1(["START"]) --> S2["build_context<br/>StrategyContext + promise_reliability → prompt"]
+        S2 --> S3["agent<br/>LiteLLM bound to TOOL_SCHEMAS"]
+        S3 --> S4{"tool_calls requested?"}
+        S4 -- "yes" --> S5["tools<br/>ToolBox.execute()<br/>recorded for audit"]
+        S5 --> S3
+        S4 -- "no" --> S6["validate<br/>Pydantic: StrategyRecommendation"]
+        S6 --> S7["emit StrategyResult<br/>+ toolbox.trace"]
+        S3 -- "failure" --> S8["fallback<br/>RuleBasedStrategist"]
+        S5 -- "error" --> S8
+        S6 -- "invalid output" --> S8
+        S8 --> S7
+        S7 --> S9(["END"])
+    end
+
+    subgraph EXEC["Execution (FR-011/012/013) — Phase 4, post-approval, not built yet (#15)"]
+        direction LR
+        X1["HUMAN approval<br/>PENDING_APPROVAL → APPROVED"]
+        X2["Execution agent<br/>generate artifacts"]
+        X3["outreach/messages.py<br/>draft reminder"]
+        X4["outreach/treds.py<br/>mock TReDS submission"]
+        X5["outreach/dossier.py<br/>MSMED dossier"]
+        X6["audit trail<br/>decided_by = HUMAN / GENERATED"]
+        X1 --> X2
+        X2 --> X3
+        X2 --> X4
+        X2 --> X5
+        X3 --> X6
+        X4 --> X6
+        X5 --> X6
+    end
+
+    P4 -. "LLMInvestigator graph" .-> INV
+    P5 -. "LLMStrategist graph" .-> STRAT
+    P7 -. "after approval (FR-010)" .-> EXEC
+
+    classDef llm fill:#2d3748,color:#fff;
+    classDef safe fill:#c6f6d5,strokeColor:#276749,color:#22543d;
+    classDef fail fill:#fed7d7,strokeColor:#c53030,color:#742a2a;
+    classDef plan fill:#edf2f7,strokeColor:#718096;
+    class I3,S3 llm;
+    class I4,I6,S6,S7,S9 safe;
+    class I5,S8 fail;
+    class X2,X3,X4,X5,X6 plan;

@@ -86,11 +86,11 @@ Point at the threshold crossing and the contributor table.
 
 ## Say this accurately
 
-The tool boundary, the recording, and the trace are **real**. The *selection* is currently rule-based, not model-driven — `LLMStrategist` is stubbed pending `OQ-02`.
+The tool boundary, the recording, and the trace are **real**. The *selection* in this demo is rule-based because `llm_enabled` is off — the LLM agents (`LLMInvestigator`, `LLMStrategist`) are implemented and swap in via `settings.llm_enabled`, but the deterministic path remains the production fallback.
 
 - ✅ "Here's the boundary the agent works through, and every number traces to a named function."
 - ✅ "The agent chose to escalate; it never calculated the interest."
-- ❌ "An LLM made this decision." — not yet.
+- ✅ "The LLM agents are implemented and tested against a mock — flipping `llm_enabled` switches to model-driven selection once a provider is configured."
 
 The architecture claim is fully true today. Don't oversell the model and hand a judge an easy question you can't answer.
 
