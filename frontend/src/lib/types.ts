@@ -78,6 +78,31 @@ export interface InvoiceInvestigation {
   auditTrail: AuditEntry[];
 }
 
+// A generated execution artifact (FR-011, FR-012, FR-013). One shape for all
+// three — the screen renders contentMarkdown without needing to know whether
+// it holds a reminder, a financing submission, or a legal filing.
+export type ArtifactKind = "REMINDER" | "TREDS_SUBMISSION" | "DOSSIER";
+
+export interface Artifact {
+  kind: ArtifactKind;
+  title: string;
+  contentMarkdown: string;
+  // Only the TReDS submission carries a machine-readable body; the other two
+  // are read by people.
+  payload: Record<string, unknown> | null;
+  editable: boolean;
+}
+
+// The outcome of a human decision (FR-010). `artifact` is null on rejection —
+// refusing an action must not hand back what it would have produced.
+export interface ApprovalResult {
+  invoiceId: string;
+  approvalState: ApprovalState;
+  recommendedAction: RecommendedAction;
+  artifact: Artifact | null;
+  auditTrail: AuditEntry[];
+}
+
 // FR-014: what was recommended, why, who decided, what happened.
 export interface AuditEntry {
   timestamp: string;

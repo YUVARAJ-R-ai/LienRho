@@ -1,11 +1,11 @@
 # Resume here
 
-Start-of-session checklist. Everything runs from `~/Coding/Projects/LienRho`.
+Start-of-session checklist. Paths below are written relative to the repo root — substitute wherever your checkout lives.
 
 ## 1. Push what's waiting
 
 ```bash
-cd ~/Coding/Projects/LienRho
+cd <repo root>
 git log --oneline origin/main..HEAD     # see what's unpushed
 git push origin main
 git push --tags                          # tags: cp0-pipeline, cp1-investigator, cp2-tool-boundary
@@ -15,7 +15,7 @@ git push --tags                          # tags: cp0-pipeline, cp1-investigator,
 
 ```bash
 # Postgres (only if the container isn't already up)
-cd ~/Coding/Projects/LienRho/backend
+cd backend
 docker compose up -d
 
 # Backend API — detached, low priority, capped to 12 cores
@@ -24,7 +24,7 @@ docker compose up -d
 ./run-dev.sh stop
 
 # Frontend (separate terminal)
-cd ~/Coding/Projects/LienRho/frontend
+cd frontend
 npm run dev               # http://localhost:3000
 ```
 
@@ -33,8 +33,8 @@ Open **http://localhost:3000**. The backend must be running — the screens read
 ## 3. Verify nothing broke
 
 ```bash
-cd ~/Coding/Projects/LienRho/backend
-uv run pytest -q                 # expect 157 passed
+cd backend
+uv run pytest -q                 # expect 206 passed
 uv run ruff check .
 
 cd ../frontend
@@ -44,7 +44,7 @@ npx tsc --noEmit && npm run lint && npm run build
 ## 4. Retrain the model (only if you changed features or the generator)
 
 ```bash
-cd ~/Coding/Projects/LienRho/backend
+cd backend
 uv run python -m app.ml_core.train              # CUDA, falls back to CPU
 uv run python -m app.ml_core.train --cpu        # force CPU
 ```

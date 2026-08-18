@@ -121,6 +121,38 @@ class CashForecastOut(BaseModel):
     )
 
 
+class ArtifactOut(BaseModel):
+    """A generated execution artifact (FR-011, FR-012, FR-013).
+
+    One shape for all three: the screen renders `contentMarkdown` and does not
+    need to know whether it is holding a reminder, a financing submission, or a
+    legal filing. `payload` carries the machine-readable TReDS body, which is
+    the only one of the three that a downstream system would ever consume.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    kind: str  # REMINDER | TREDS_SUBMISSION | DOSSIER
+    title: str
+    content_markdown: str = Field(serialization_alias="contentMarkdown")
+    payload: dict | None = None
+    editable: bool = False
+
+
+class ApprovalResultOut(BaseModel):
+    """The outcome of a human decision, with whatever it produced (FR-010)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    invoice_id: str = Field(serialization_alias="invoiceId")
+    approval_state: str = Field(serialization_alias="approvalState")
+    recommended_action: str = Field(serialization_alias="recommendedAction")
+    # Null on rejection — refusing an action must not hand back the artifact it
+    # would have produced (FR-010 AC-2).
+    artifact: ArtifactOut | None = None
+    audit_trail: list[AuditEntryOut] = Field(serialization_alias="auditTrail")
+
+
 class PortfolioSummaryOut(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
