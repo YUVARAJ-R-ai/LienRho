@@ -6,7 +6,7 @@
 
 ## 1. Executive Summary
 
-LIENRHO implements **two agents today** (Investigator, Strategy) with a **third planned** (Execution). All current agents are **deterministic rule-based implementations** that serve as production fallbacks. LLM-backed versions (`LLMInvestigator`, `LLMStrategist`) are stubbed behind identical interfaces, blocked only on **OQ-02** (LLM provider/key selection).
+LIENRHO implements **two agents today** (Investigator, Strategy) with a **third planned** (Execution). Each agent has a **deterministic rule-based implementation** that serves as the production fallback, plus a **fully implemented LLM-backed version** (`LLMInvestigator`, `LLMStrategist`) built on the LangGraph/LangChain ecosystem and gated behind the same interface by `settings.llm_enabled`. No provider key is needed to run the system: the LLM path is verified end-to-end against a scripted `MockLLMClient`, so OQ-02 only decides *which* gateway to point at, not *whether* the agent layer works.
 
 **Key Architectural Principle**: The LLM never computes statutory, financial, or interest values (CON-05, ADR-002, NFR-003). Agents call deterministic tools via `ToolBox`; every call is recorded for audit. The Decision Engine cannot distinguish LLM vs rule-based output — both validate against the same Pydantic schemas.
 
@@ -21,8 +21,9 @@ LIENRHO implements **two agents today** (Investigator, Strategy) with a **third 
 | **Purpose** | Read customer correspondence for one invoice; extract structured findings |
 | **File** | `backend/app/agents/investigator.py` |
 | **Interface** | `Investigator` (ABC) → `investigate(thread: CommunicationThread, as_of: date) → InvestigatorFindings` |
-| **Implementations** | `RuleBasedInvestigator` (production), `LLMInvestigator` (stub, OQ-02) |
-| **Factory** | `get_investigator()` → returns rule-based while OQ-02 open |
+| **Implementations** | `RuleBasedInvestigator` (fallback), `LLMInvestigator` (implemented, gated on `settings.llm_enabled`) |
+| **Factory** | `get_investigator()` → LLM version when `settings.llm_enabled`, else rule-based |
+| **LLM Shape** | `LiteLLMChatModel(client, model_tier="cheap")` → `.with_structured_output(InvestigatorFindings)` (single call, standard `json_schema` response format) |
 | **Output Schema** | `InvestigatorFindings` (Pydantic, `schemas.py:20-71`) |
 
 **Findings Structure**:
@@ -54,8 +55,9 @@ promise_is_credible: bool          # Property: promise + reliability ≥ 0.5
 | **Purpose** | Select Track A/B/C for one invoice with reasoning |
 | **File** | `backend/app/agents/strategy.py` |
 | **Interface** | `Strategist` (ABC) → `recommend(context: StrategyContext, as_of: date) → StrategyResult` |
-| **Implementations** | `RuleBasedStrategist` (production), `LLMStrategist` (stub, OQ-02) |
-| **Factory** | `get_strategist()` → returns rule-based while OQ-02 open |
+| **Implementations** | `RuleBasedStrategist` (fallback), `LLMStrategist` (implemented, gated on `settings.llm_enabled`) |
+| **Factory** | `get_strategist()` → LLM version when `settings.llm_enabled`, else rule-based |
+| **LLM Shape** | `create_agent(model, tools=build_toolbox_tools(box), system_prompt=...)` — stock ReAct loop from LangGraph; `_max_steps` maps to the graph's `recursion_limit` |
 | **Output Schema** | `StrategyRecommendation` (Pydantic, `schemas.py:88-109`) |
 
 **Context Input** (`StrategyContext`):
@@ -303,43 +305,66 @@ interface ActionQueueItem {
 
 ---
 
-## 7. LangGraph Integration — What's Needed for OQ-02
+## 7. LangGraph Integration — Implemented State
 
-### 7.1 LLMInvestigator (Target Shape)
+The agent layer is now built on stock LangGraph/LangChain primitives rather than hand-wired plumbing. One new module and one adapter make this work; the ToolBox seam is untouched, so the audit trail stays byte-identical between the LLM and rule-based paths.
+
+### 7.0 The LLM seam and adapter — `backend/app/agents/llm_client.py`
+
+| Piece | Purpose |
+|-------|---------|
+| `LLMClient` (ABC) + `LLMResult` | The only thing agents know about the outside LLM world. `chat(messages, tools, model_tier, response_format)` in OpenAI wire format; `LLMResult` now carries `usage` (prompt/completion/total tokens) for observability. |
+| `LiteLLMClient` | Production client for the LiteLLM gateway, routing by `model_tier` (`cheap` / `frontier`) to `settings.llm_cheap_model` / `settings.llm_frontier_model`. |
+| `MockLLMClient` | Scripted fake — pops the next canned `LLMResult` per call, replays the last one when exhausted. Lets the entire agent layer (tool loop, structured output, fallbacks) run with no network and no key. |
+| `LiteLLMChatModel(BaseChatModel)` | **Adapter** that exposes `LLMClient` to LangGraph as a `BaseChatModel`: `bind_tools()` stores converted OpenAI schemas, `with_structured_output()` uses litellm's native `json_schema` mode then validates via the Pydantic schema, `_generate()` converts messages through `convert_to_openai_messages` and maps `usage` → `usage_metadata`. |
+| `ensure_langfuse_wiring()` | Opts into litellm's first-party `langfuse` success/failure callbacks, guarded so it can never break a call. |
+| `get_langfuse_handler()` | Returns a langfuse `CallbackHandler` (or `None`) for the graph config — only when `LANGFUSE_PUBLIC_KEY` or `LANGFUSE_MOCK` is set. |
+
+### 7.1 LLMInvestigator (implemented)
 
 ```python
-class LLMInvestigator(Investigator):
-    def __init__(self, fallback: Investigator = RuleBasedInvestigator()):
-        self._fallback = fallback
-        # LangGraph: single structured-output call
-        # Prompt: thread rendered + promise_reliability as context
-        # Output: InvestigatorFindings (validated)
-        # On ANY failure: return self._fallback.investigate(thread, as_of)
+model = LiteLLMChatModel(client=self._client, model_tier=CHEAP_TIER)
+chain = model.with_structured_output(InvestigatorFindings)  # standard json_schema
+findings = chain.invoke(self._build_messages(thread, as_of))
+return self._fill_history(findings, thread)                  # ADR-004: real reliability wins
 ```
 
-### 7.2 LLMStrategist (Target Shape)
+- Single structured-output call; no tools.
+- `_fill_history` overwrites any model-invented `promise_reliability` / `prior_broken_promises` with observed history (ADR-004).
+- Any exception (gateway failure, malformed output, schema violation) → `self._fallback.investigate(...)`.
+
+### 7.2 LLMStrategist (implemented)
 
 ```python
-class LLMStrategist(Strategist):
-    def __init__(self, fallback: Strategist = RuleBasedStrategist()):
-        self._fallback = fallback
-        # LangGraph graph:
-        #   - Agent node bound to TOOL_SCHEMAS
-        #   - Loop until model stops requesting tools
-        #   - Emit StrategyRecommendation (validated)
-        # Rules:
-        #   1. NEVER accept statutory/financial figure from model output
-        #   2. Fall through to fallback on ANY failure
+model = LiteLLMChatModel(client=self._client, model_tier=FRONTIER_TIER)
+graph = create_agent(model, tools=build_toolbox_tools(box), system_prompt=self._system_prompt())
+final = graph.invoke(
+    {"messages": [HumanMessage(self._user_message(context, as_of))]},
+    config={
+        "configurable": {"thread_id": ...},
+        "metadata": {"invoice_id": ..., "as_of": ...},
+        "recursion_limit": self._max_steps * 3 + 10,   # each tool loop = 2 nodes
+        "callbacks": [get_langfuse_handler()] or [],
+    },
+)
+recommendation = self._parse_recommendation(final["messages"][-1].content)
 ```
 
-### 7.3 Integration Points
+- **Stock ReAct loop** from LangGraph's `create_agent` — no hand-rolled StateGraph, no per-call `MemorySaver`.
+- **Tools** are `ToolBox` methods wrapped as `StructuredTool`s by `build_toolbox_tools(box)` (typed pydantic args), so every model-requested call still lands in `ToolBox.calls`/`trace`. Unknown tool names get the framework's error `ToolMessage` back to the model.
+- **Rules** (unchanged from the plan):
+  1. NEVER accept a statutory/financial figure from the model output — the recommendation must be grounded in facts gathered through tool calls (`_facts_missing`).
+  2. Fall through to `RuleBasedStrategist` on ANY failure — including `GraphRecursionError` (runaway loop past `_max_steps`), gateway exceptions, and unparseable final answers. `StrategyResult.fallback_reason` records why.
+- Final answer is parsed and Pydantic-validated before use.
 
-| Location | Change Needed |
-|----------|---------------|
-| `investigator.py:244` | `return LLMInvestigator()` when provider selected |
-| `strategy.py:271` | `return LLMStrategist()` when provider selected |
-| `backend/requirements.txt` | Add `langgraph`, `langchain-openai` (or chosen provider) |
-| Environment | `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL` |
+### 7.3 Enabling the LLM path
+
+| Switch | Meaning |
+|--------|---------|
+| `settings.llm_enabled` | `get_investigator()` / `get_strategist()` return the LLM versions when True (default False). |
+| `LLM_PROVIDER` / `LLM_API_KEY` / `LLM_MODEL` | LiteLLM gateway targeting (OQ-02); none needed for the mock or the tests. |
+| `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` + `LANGFUSE_HOST` | Langfuse tracing via litellm callbacks + graph `callbacks`. |
+| `LANGFUSE_MOCK=true` | Local tracing without keys (for dev). |
 
 ---
 
@@ -363,16 +388,17 @@ class LLMStrategist(Strategist):
 - [x] **Decision Engine**: Audit trail construction (ML, RULES, TOOL, AGENT, HUMAN)
 - [x] **Decision Engine**: Queue ranking (tier → value)
 
-### 8.2 LLM Agent Integration (Blocked on OQ-02)
+### 8.2 LLM Agent Integration (Implemented)
 
-- [ ] **LLM Provider Selection** — Choose: OpenAI, Anthropic, Azure, local (Ollama), etc.
-- [ ] **LangGraph Setup** — Add dependencies, configure graph compilation
-- [ ] **LLMInvestigator Implementation** — Structured output call + fallback
-- [ ] **LLMStrategist Implementation** — LangGraph graph with tool loop + fallback
-- [ ] **Prompt Engineering** — Thread rendering, context injection, few-shot examples
-- [ ] **Tool Calling Validation** — Ensure model only uses TOOL_SCHEMAS, no hallucinated values
-- [ ] **Failure Handling** — Timeout, rate limit, refusal, malformed output → fallback
-- [ ] **Observability** — Log LLM calls, token usage, latency, fallback rate
+- [x] **LLM Seam** — `LLMClient` ABC with OpenAI-compatible wire format, `MockLLMClient` for tests
+- [x] **LangGraph Setup** — `langgraph`, `langchain`, `langchain-core`, `litellm`, `langfuse` dependencies
+- [x] **LLMInvestigator Implementation** — `LiteLLMChatModel.with_structured_output(InvestigatorFindings)` + fallback
+- [x] **LLMStrategist Implementation** — `create_agent` tool loop + `build_toolbox_tools` + fallback
+- [x] **Prompt Engineering** — Thread rendering, context injection, "never compute" rules
+- [x] **Tool Calling Validation** — Model only learns statutory/financial values via tools; `_facts_missing` grounds the recommendation
+- [x] **Failure Handling** — Timeout, rate limit, refusal, malformed output, runaway loop → fallback with `fallback_reason`
+- [x] **Observability** — Langfuse callbacks + litellm tracing; token `usage` captured on every completion; `fallback_reason` surfaced on every fallback
+- [ ] **Provider Selection (OQ-02)** — Remaining work is choosing the concrete gateway/model and setting env vars
 
 ### 8.3 Execution Agent (Phase 4 — Not Started)
 
@@ -399,6 +425,8 @@ class LLMStrategist(Strategist):
 | `test_investigator.py` | Promise detection with date, serial defaulter, hedged promises, acknowledgement ≠ promise, most recent wins, outbound ignored, dispute detection, silence handling, reliability history |
 | `test_strategy.py` | Every statutory value via recorded tool call, interest only with breach, TReDS via tool, financing terms only when viable, trace names function+result, tool args serializable, TOOL_SCHEMAS complete, dispute blocks escalation, broken promise cited, credible promise → follow-up, financing wins when eligible+short, deciding_factors present, statutory interest in factors |
 | `test_decision_engine.py` | Track selection logic, prioritization (statutory/shortfall → CRITICAL), ranking (tier → value), approval gate (PENDING→APPROVED/REJECTED, reject leaves state, audit records actor), audit trail names ML/RULES/AGENT, cites deterministic functions, promise credibility handling |
+| `test_llm_investigator.py` | LLMInvestigator returns validated findings, ADR-004 history overwrite (real reliability wins), cheap tier + standard `json_schema` response format, malformed output / gateway failure / invalid schema → fallback, swappable fallback |
+| `test_llm_strategist.py` | create_agent tool loop with recorded ToolBox calls, FINANCE grounding (TReDS tool required), fallbacks (ungrounded escalate, gateway failure, malformed answer, runaway loop past `_max_steps` → `recursion_limit`), unknown tool reported as error to the model, frontier tier, interest only computed when requested |
 
 ---
 
@@ -409,9 +437,11 @@ backend/app/
 ├── agents/
 │   ├── __init__.py              # Architecture docstring
 │   ├── schemas.py               # InvestigatorFindings, StrategyRecommendation (Pydantic)
-│   ├── investigator.py          # Investigator ABC, RuleBased, LLM stub, get_investigator()
-│   ├── strategy.py              # Strategist ABC, RuleBased, LLM stub, get_strategist(), ToolBox
-│   └── tools.py                 # ToolCall, ToolBox, TOOL_SCHEMAS (4 tools)
+│   ├── llm_client.py            # LLMClient ABC, LiteLLMClient, MockLLMClient, LLMResult (with usage),
+│   │                            #   LiteLLMChatModel (BaseChatModel adapter), langfuse wiring
+│   ├── investigator.py          # Investigator ABC, RuleBased, LLMInvestigator, get_investigator()
+│   ├── strategy.py              # Strategist ABC, RuleBased, LLMStrategist (create_agent), get_strategist()
+│   └── tools.py                 # ToolCall, ToolBox, TOOL_SCHEMAS (4 tools), build_toolbox_tools (StructuredTool wrappers)
 ├── decision_engine/
 │   ├── __init__.py              # Architecture docstring
 │   ├── engine.py                # decide_action, score_priority, assign_priority, build_recommendation, rank_queue, approve/reject/assert_executable
@@ -434,21 +464,23 @@ backend/app/
 └── tests/
     ├── test_investigator.py
     ├── test_strategy.py
-    └── test_decision_engine.py
+    ├── test_decision_engine.py
+    ├── test_llm_investigator.py # structured output, ADR-004 history overwrite, tier/response_format, fallbacks
+    └── test_llm_strategist.py   # create_agent tool loop, grounding, unknown-tool error, step cap, tier, fallbacks
 ```
 
 ---
 
 ## 11. Implementation Order for OQ-02 Resolution
 
-1. **Choose LLM Provider** → Set `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL` in env
-2. **Add Dependencies** → `langgraph`, `langchain-{provider}`, `pydantic-ai` (optional for structured output)
-3. **Implement LLMInvestigator** → Single structured call, thread→prompt, fallback on failure
-4. **Implement LLMStrategist** → LangGraph graph with tool loop, emit StrategyRecommendation, fallback
-5. **Wire Factories** → Change `get_investigator()` / `get_strategist()` to return LLM versions
-6. **Run Agent Tests** → Ensure deterministic fallback still passes, LLM version produces valid schemas
-7. **Measure Fallback Rate** → Target < 5% fallback in production traffic
-8. **Load Test** → Verify NFR-004 (p95 ≤ 3.0s @ 100 invoices) with LLM calls
+The agent layer is implemented and tested against `MockLLMClient`; OQ-02 is now purely a deployment decision:
+
+1. **Choose LLM Provider** → Set `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL` (the LiteLLM gateway target; no code changes)
+2. **Enable the LLM path** → Set `settings.llm_enabled=True`; `get_investigator()` / `get_strategist()` return the LLM versions
+3. **Configure observability** → `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST` (or `LANGFUSE_MOCK=true` locally)
+4. **Run Agent Tests** → `test_llm_investigator.py` / `test_llm_strategist.py` verify the LLM path against the mock; the deterministic fallback tests still pass
+5. **Measure Fallback Rate** → Target < 5% fallback in production traffic (`StrategyResult.fallback_reason` makes the count audit-ready)
+6. **Load Test** → Verify NFR-004 (p95 ≤ 3.0s @ 100 invoices) with LLM calls
 
 ---
 
@@ -465,4 +497,4 @@ backend/app/
 
 ---
 
-*Report generated from codebase analysis as of 2026-08-16. Source of truth: `docs/inception.md`, `docs/implementation-status.md`, and backend source files.*
+*Report generated from codebase analysis as of 2026-08-16. Source of truth: `docs/inception.md`, `docs/implementation-status.md`, and backend source files. Updated 2026-08-16: LLMInvestigator/LLMStrategist implemented on LangGraph/LangChain primitives (see §7).*
