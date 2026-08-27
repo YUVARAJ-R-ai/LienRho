@@ -5,10 +5,10 @@ app/db/scoping.py are the only sanctioned way to read/write these tables so
 no endpoint can forget the org_id filter.
 """
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
@@ -67,3 +67,50 @@ class BusinessFinancialState(OrgScopedMixin, Base):
     payroll: Mapped[Decimal]
     supplier_payments: Mapped[Decimal]
     cash_threshold: Mapped[Decimal]
+
+
+class ActionDecision(OrgScopedMixin, Base):
+    """The current human decision on one invoice's recommendation (FR-010, FR-014).
+
+    One row per (org, invoice): the *state*, not the history. The sequence of
+    decisions that produced it lives in `audit_log_entries`, because an
+    approve-then-reject is two facts about who decided what and FR-014 asks for
+    both. Storing only the latest state here keeps the replay in one place.
+    """
+
+    __tablename__ = "action_decisions"
+
+    org_id: Mapped[str] = mapped_column(String, primary_key=True)
+    invoice_id: Mapped[str] = mapped_column(String, primary_key=True)
+    approval_state: Mapped[str]
+    # Nullable: a decision can be recorded before the action is known, and a
+    # sentinel string here would fail to parse back into RecommendedAction.
+    recommended_action: Mapped[str | None]
+    decided_by: Mapped[str]
+    decided_at: Mapped[datetime]
+
+
+class AuditLogEntry(OrgScopedMixin, Base):
+    """One durable line of the FR-014 audit trail: what, why, who, when.
+
+    `sequence` orders entries within an invoice. It is stored explicitly rather
+    than relying on the timestamp because several entries are written inside the
+    same call and would otherwise share a timestamp to the microsecond, leaving
+    an approve-then-reject pair with no defined order — which is exactly the
+    ordering NFR-007 needs to hold.
+    """
+
+    __tablename__ = "audit_log_entries"
+    # Matches how the trail is read — one invoice, in order — and makes a
+    # duplicated sequence number impossible if a rewrite ever races.
+    __table_args__ = (
+        UniqueConstraint("org_id", "invoice_id", "sequence", name="uq_audit_entry_sequence"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    invoice_id: Mapped[str] = mapped_column(String, index=True)
+    sequence: Mapped[int]
+    timestamp: Mapped[str]
+    decided_by: Mapped[str]  # ML | RULES | TOOL | AGENT | HUMAN
+    what: Mapped[str] = mapped_column(Text)
+    why: Mapped[str] = mapped_column(Text)

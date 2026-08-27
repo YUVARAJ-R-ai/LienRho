@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,6 +10,15 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://lienrho:lienrho@localhost:5432/lienrho"
     environment: str = "development"
+
+    # --- Decision durability (FR-014, NFR-007) ------------------------------
+    # "postgres" keeps approvals and audit trails across an API restart;
+    # "memory" is the no-dependency fallback used by the test suite and by a
+    # dev machine with no database. Chosen explicitly rather than by probing
+    # the database, because an audit trail that quietly stops being durable is
+    # worse than one that fails loudly — nothing downstream can tell the
+    # difference until the trail is needed.
+    audit_store: Literal["postgres", "memory"] = "postgres"
 
     # --- LLM gateway (OQ-02) ------------------------------------------------
     # The agent layer talks to an OpenAI-compatible endpoint (LiteLLM gateway
