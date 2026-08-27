@@ -16,14 +16,28 @@ strategist use:
 Both satisfy `ApprovalStore` and are exercised by the same contract tests, so
 the Decision Engine cannot tell them apart.
 
-Choosing the store is deliberate rather than automatic: `settings.audit_store`
-selects it, and an unreachable database raises instead of quietly degrading. An
-audit trail that silently stops being durable is worse than one that fails
-loudly, because nothing downstream can tell the difference until it is needed.
+`settings.audit_store` chooses. When it asks for Postgres and Postgres is not
+reachable, the process falls back to the in-memory store rather than refusing
+to serve — the same shape as `LLMStrategist` falling back to rule-based, and
+for the same reason: a teammate who has not started a database should still get
+a working app.
+
+The risk in that is real, though. An audit trail that stops being durable
+without saying so is worse than one that fails loudly, because nothing
+downstream can tell the difference until the trail is needed. So the fallback
+is deliberately *not* silent: it logs a warning naming the reason, it is
+recorded in `audit_store_status()`, and `/health` reports it. Degraded is a
+state you can observe, not one you have to infer.
+
+The choice is made once per process and then kept. Retrying per call would be
+worse than either option: decisions written while the database was down would
+sit in memory, invisible to a later read that reached a recovered database,
+and the two halves of the trail would disagree.
 """
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -31,6 +45,8 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, select
 
 from app.decision_engine.engine import ApprovalState, AuditEntry, RecommendedAction
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -106,6 +122,19 @@ class SqlApprovalStore(ApprovalStore):
 
             session_factory = SessionLocal
         self._session_factory = session_factory
+
+    def probe(self) -> None:
+        """Raise unless the database is reachable and the tables are there.
+
+        Checked against `action_decisions` rather than `SELECT 1`: a database
+        that is up but un-migrated would pass a bare connection check and then
+        fail on the first approval, which is precisely the late failure the
+        fallback exists to avoid.
+        """
+        from app.db.models import ActionDecision
+
+        with self._session_factory() as session:
+            session.execute(select(ActionDecision).limit(1)).first()
 
     def get(self, org_id: str, invoice_id: str) -> ApprovalRecord | None:
         from app.db.models import ActionDecision, AuditLogEntry
@@ -223,27 +252,85 @@ class SqlApprovalStore(ApprovalStore):
 
 
 _STORE: ApprovalStore | None = None
+_DEGRADED_REASON: str | None = None
+
+
+@dataclass(frozen=True)
+class AuditStoreStatus:
+    """What this process is actually doing with decisions, for `/health`."""
+
+    requested: str
+    active: str
+    durable: bool
+    degraded_reason: str | None = None
 
 
 def get_approval_store() -> ApprovalStore:
     """The store this process uses, chosen once from `settings.audit_store`.
 
+    Falling back rather than raising when Postgres is unreachable, so a missing
+    database degrades the app instead of breaking it. The fallback is logged and
+    reported by `audit_store_status()` — see the module docstring for why it is
+    made once and kept.
+
     Cached because `SqlApprovalStore` holds a session factory; the underlying
     engine pools connections, so this is not a per-request cost.
     """
-    global _STORE
-    if _STORE is None:
-        from app.config import settings
+    global _STORE, _DEGRADED_REASON
+    if _STORE is not None:
+        return _STORE
 
-        _STORE = (
-            SqlApprovalStore()
-            if settings.audit_store == "postgres"
-            else InMemoryApprovalStore()
+    from app.config import settings
+
+    if settings.audit_store != "postgres":
+        _STORE = InMemoryApprovalStore()
+        return _STORE
+
+    candidate = SqlApprovalStore()
+    try:
+        candidate.probe()
+    except Exception as exc:  # noqa: BLE001 - any failure to reach the DB degrades
+        _DEGRADED_REASON = f"{type(exc).__name__}: {exc}"
+        logger.warning(
+            "audit_store=postgres but the database is unreachable; falling back to "
+            "in-memory. Approvals and audit trails will NOT survive a restart (#19). "
+            "Reason: %s",
+            _DEGRADED_REASON,
         )
+        _STORE = InMemoryApprovalStore()
+    else:
+        _DEGRADED_REASON = None
+        _STORE = candidate
+
     return _STORE
 
 
+def audit_store_status() -> AuditStoreStatus:
+    """Whether decisions are actually being persisted right now.
+
+    Calls `get_approval_store()` so that asking the question resolves the store
+    if nothing has yet — otherwise `/health` would report "memory" on a healthy
+    deployment simply because no approval had happened.
+    """
+    from app.config import settings
+
+    store = get_approval_store()
+    durable = isinstance(store, SqlApprovalStore)
+    return AuditStoreStatus(
+        requested=settings.audit_store,
+        active="postgres" if durable else "memory",
+        durable=durable,
+        degraded_reason=_DEGRADED_REASON,
+    )
+
+
 def set_approval_store(store: ApprovalStore | None) -> None:
-    """Override the process store. For tests and for the demo reset path."""
-    global _STORE
+    """Override the process store. For tests and for the demo reset path.
+
+    Clears the degraded flag too: passing None asks for a clean re-resolve, and
+    leaving a stale reason behind would have `/health` reporting a fallback that
+    is no longer in effect.
+    """
+    global _STORE, _DEGRADED_REASON
     _STORE = store
+    _DEGRADED_REASON = None

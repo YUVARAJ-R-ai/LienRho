@@ -14,10 +14,13 @@ class Settings(BaseSettings):
     # --- Decision durability (FR-014, NFR-007) ------------------------------
     # "postgres" keeps approvals and audit trails across an API restart;
     # "memory" is the no-dependency fallback used by the test suite and by a
-    # dev machine with no database. Chosen explicitly rather than by probing
-    # the database, because an audit trail that quietly stops being durable is
-    # worse than one that fails loudly — nothing downstream can tell the
-    # difference until the trail is needed.
+    # dev machine with no database.
+    #
+    # Asking for postgres is a preference, not a demand: if the database is
+    # unreachable the process falls back to memory and keeps serving rather
+    # than refusing to start. The fallback is logged and reported by /health,
+    # so a deployment that has quietly stopped being durable is visible rather
+    # than something you find out when you need the trail.
     audit_store: Literal["postgres", "memory"] = "postgres"
 
     # --- Portfolio source (FR-001, CON-02, #6) ------------------------------

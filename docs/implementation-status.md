@@ -21,7 +21,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 | FR-011 | Generate draft outreach messages | ✅ | `outreach/drafts.py` | Email and WhatsApp tones, referencing amount, due date, and the FR-007 evidence. Editable in the UI before send. Template implementation today; `LLMReminderDrafter` behind the same interface awaits `OQ-02` |
 | FR-012 | Mock TReDS submission | ✅ | `outreach/treds_submission.py` | Payload matches prd.md §719–725; `estimated_proceeds = amount − financing_cost` enforced on the model, not just tested. Ineligible invoices are refused rather than submitted |
 | FR-013 | Statutory escalation dossier | ✅ | `outreach/dossier.py` | All seven sections present. Interest comes through `ToolBox` so it lands in the audit trail as a recorded call. Missing evidence (proof of delivery) is stated as missing, never inferred |
-| FR-014 | Audit trail | ✅ | `decision_engine/engine.py`, `decision_engine/store.py`, `AuditTrail.tsx` | ML/RULES/TOOL/AGENT/HUMAN attribution, persisted to `audit_log_entries` and ordered by a stored sequence rather than the timestamp. `actor` comes from the access token, not the request (#19, #20) |
+| FR-014 | Audit trail | ✅ | `decision_engine/engine.py`, `decision_engine/store.py`, `AuditTrail.tsx` | ML/RULES/TOOL/AGENT/HUMAN attribution, persisted to `audit_log_entries` and ordered by a stored sequence rather than the timestamp. `actor` comes from the access token, not the request. An unreachable database degrades to in-memory rather than refusing to serve; `/health` reports `auditStore.durable` so the degraded state is observable (#19, #20) |
 | FR-015 | Invoices contributing to a shortfall | ✅ | `ml_core/forecast.py` | Ranked by amount × probability-still-unpaid |
 
 ## Non-functional requirements
@@ -66,7 +66,7 @@ synthetic portfolio (30 invoices, ₹42.6L) + communication threads
   → four Next.js screens reading the live API
 ```
 
-Backend: 303 tests passing, ruff clean. Frontend: typechecks, lints, builds.
+Backend: 311 tests passing, ruff clean. Frontend: typechecks, lints, builds.
 
 **Note for anyone setting up on macOS:** `xgboost` needs the OpenMP runtime, which
 is not a Python dependency. Without it every import of `app.ml_core` fails and

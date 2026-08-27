@@ -182,3 +182,135 @@ def test_returned_entries_are_a_copy(store):
     store.get(ORG, "INV-1042").entries.append(_entry("injected"))
 
     assert [e.what for e in store.get(ORG, "INV-1042").entries] == ["one"]
+
+
+# --------------------------------------------------- degradation (#19)
+#
+# `audit_store=postgres` is a preference, not a demand: an unreachable database
+# falls back to memory and keeps serving. These pin the part that makes that
+# safe to live with — the fallback says so, loudly and observably.
+
+
+def _unreachable_settings(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "audit_store", "postgres")
+    monkeypatch.setattr(
+        settings, "database_url", "postgresql+psycopg://nobody@127.0.0.1:1/nothing"
+    )
+
+
+def test_an_unreachable_database_falls_back_instead_of_raising(monkeypatch):
+    from app.decision_engine import store as store_module
+
+    _unreachable_settings(monkeypatch)
+    monkeypatch.setattr(
+        store_module.SqlApprovalStore,
+        "probe",
+        lambda self: (_ for _ in ()).throw(OSError("connection refused")),
+    )
+    store_module.set_approval_store(None)
+
+    assert isinstance(store_module.get_approval_store(), InMemoryApprovalStore)
+
+
+def test_the_fallback_is_reported_rather_than_silent(monkeypatch, caplog):
+    """The whole justification for degrading instead of failing."""
+    from app.decision_engine import store as store_module
+
+    _unreachable_settings(monkeypatch)
+    monkeypatch.setattr(
+        store_module.SqlApprovalStore,
+        "probe",
+        lambda self: (_ for _ in ()).throw(OSError("connection refused")),
+    )
+    store_module.set_approval_store(None)
+
+    with caplog.at_level("WARNING"):
+        store_module.get_approval_store()
+
+    assert "will NOT survive a restart" in caplog.text
+
+    status = store_module.audit_store_status()
+    assert status.requested == "postgres"
+    assert status.active == "memory"
+    assert status.durable is False
+    assert "connection refused" in status.degraded_reason
+
+
+def test_a_degraded_process_still_records_decisions(monkeypatch):
+    """Degraded means "not durable", not "not working"."""
+    from app.decision_engine import store as store_module
+
+    _unreachable_settings(monkeypatch)
+    monkeypatch.setattr(
+        store_module.SqlApprovalStore,
+        "probe",
+        lambda self: (_ for _ in ()).throw(OSError("connection refused")),
+    )
+    store_module.set_approval_store(None)
+
+    store_module.get_approval_store().record(
+        ORG,
+        "INV-1042",
+        ApprovalRecord(state=ApprovalState.APPROVED, entries=[_entry("x")], actor="a"),
+    )
+
+    assert store_module.get_approval_store().get(ORG, "INV-1042").state is ApprovalState.APPROVED
+
+
+def test_memory_by_configuration_is_not_reported_as_degraded(monkeypatch):
+    """Asking for memory and getting it is a choice, not a failure.
+
+    Conflating the two would have /health permanently warning on the test and
+    demo configurations, which is how a real warning gets ignored.
+    """
+    from app.config import settings
+    from app.decision_engine import store as store_module
+
+    monkeypatch.setattr(settings, "audit_store", "memory")
+    store_module.set_approval_store(None)
+
+    status = store_module.audit_store_status()
+    assert status.active == "memory"
+    assert status.durable is False
+    assert status.degraded_reason is None
+
+
+@pytest.mark.skipif(not _database_available(), reason="no database reachable")
+def test_a_reachable_database_is_used_and_reported_durable(monkeypatch):
+    from app.config import settings
+    from app.decision_engine import store as store_module
+
+    monkeypatch.setattr(settings, "audit_store", "postgres")
+    store_module.set_approval_store(None)
+
+    status = store_module.audit_store_status()
+    assert status.active == "postgres"
+    assert status.durable is True
+    assert status.degraded_reason is None
+
+
+@pytest.mark.skipif(not _database_available(), reason="no database reachable")
+def test_an_unmigrated_database_degrades_rather_than_failing_later(monkeypatch):
+    """A database that is up but missing the tables must not pass the probe.
+
+    It would otherwise connect cleanly and fail on the first approval — exactly
+    the late failure the fallback exists to prevent.
+    """
+    from sqlalchemy import text
+
+
+    store = _sql_store()
+    with store._session_factory() as session:
+        session.execute(text("ALTER TABLE action_decisions RENAME TO action_decisions_tmp"))
+        session.commit()
+    try:
+        with pytest.raises(Exception):  # noqa: B017 - any DB error must fail the probe
+            store.probe()
+    finally:
+        with store._session_factory() as session:
+            session.execute(
+                text("ALTER TABLE action_decisions_tmp RENAME TO action_decisions")
+            )
+            session.commit()
