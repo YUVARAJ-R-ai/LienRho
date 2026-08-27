@@ -20,17 +20,12 @@ import type {
   Artifact,
   CashForecast,
   InvoiceInvestigation,
+  PortfolioSummary,
 } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+export type { PortfolioSummary };
 
-export interface PortfolioSummary {
-  totalReceivables: number;
-  atRisk: number;
-  openInvoices: number;
-  shortfallAmount: number | null;
-  shortfallDate: string | null;
-}
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 // Thrown when the session is missing or the backend rejects the token. The
 // proxy redirects unauthenticated navigation, so reaching this means the token

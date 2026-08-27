@@ -28,6 +28,7 @@ Frontend (`cd frontend`, needs the backend running — screens are server compon
 ```bash
 npm install && npm run dev                # :3000
 npx tsc --noEmit && npm run lint && npm run build
+npm run generate:types                    # regenerate the API contract after a backend schema change
 ```
 
 CI (`.github/workflows/ci.yml`) runs `ruff check` + `pytest` for backend and `lint` + `tsc --noEmit` + `build` for frontend. It does **not** train the model.
@@ -82,7 +83,7 @@ Both agents ship as **two implementations behind one interface**: `RuleBasedInve
 - **Auth is real now** (#20): `app/db/scoping.py` derives `org_id` from a signed bearer token, not a header. `/api/*` requires one — the dependency sits on the router so a new endpoint cannot ship unauthenticated. Seed a login with `uv run python -m app.auth.seed` (`demo@lienrho.local` / `lienrho-demo`). The frontend keeps the token in an httpOnly cookie, so browser-side calls (approve/reject, draft) go through Next route handlers rather than straight to FastAPI.
 - **Approvals and the audit trail are durable** (#19). The queue is derived on every request, so a decision stored on a recommendation object would vanish with it; decisions live in an `ApprovalStore` (`decision_engine/store.py`) and are replayed onto each rebuild. `settings.audit_store` picks `postgres` or the in-memory fallback — it never probes and falls back silently, because an audit trail that quietly stops being durable is indistinguishable from one that works.
 - **The three artifacts gate themselves.** `assert_executable()` is called inside each generator rather than once upstream, so a new generator cannot quietly skip it. Drafts are deliberately ungated — a draft is what the user reads in order to decide.
-- **`frontend/src/lib/types.ts` mirrors backend response shapes by hand**; nothing enforces they stay in sync (#21). Backend schemas use camelCase aliases (`response_model_by_alias=True`).
+- **`frontend/src/lib/types.ts` is derived, not written** (#21). It aliases onto `src/lib/api-types.ts`, generated from `backend/openapi.json` — regenerate both with `npm run generate:types` in `frontend/`, and commit the result; CI diffs them and fails if stale. The narrowed string unions carry `_DriftGuards` assertions, because `Omit<T, "k">` does not error when `k` is absent from `T` and a rename would otherwise slip through. Backend schemas use camelCase aliases (`response_model_by_alias=True`), and the schema carries the aliases.
 - `frontend/CLAUDE.md` points at `frontend/AGENTS.md`, which `next dev` rewrites — Next.js 16 has breaking changes from training data; read `frontend/node_modules/next/dist/docs/` before writing frontend code.
 
 ## Docs
