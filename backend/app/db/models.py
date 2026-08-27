@@ -8,7 +8,7 @@ no endpoint can forget the org_id filter.
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKeyConstraint, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
@@ -19,10 +19,25 @@ class OrgScopedMixin:
 
 
 class Invoice(OrgScopedMixin, Base):
-    __tablename__ = "invoices"
+    """An invoice, keyed by (org_id, invoice_id).
 
+    The org is part of the primary key, not just a filter column. Two tenants
+    running the same accounting software will collide on invoice numbers —
+    "INV-001" is not a globally unique string — and a bare `invoice_id` key made
+    the second org's sync fail on a duplicate key rather than isolating them
+    (NFR-001, BR-TENANT).
+    """
+
+    __tablename__ = "invoices"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["org_id", "customer_id"], ["customers.org_id", "customers.customer_id"]
+        ),
+    )
+
+    org_id: Mapped[str] = mapped_column(String, primary_key=True)
     invoice_id: Mapped[str] = mapped_column(String, primary_key=True)
-    customer_id: Mapped[str] = mapped_column(ForeignKey("customers.customer_id"))
+    customer_id: Mapped[str] = mapped_column(String)
     invoice_amount: Mapped[Decimal]
     invoice_date: Mapped[date]
     due_date: Mapped[date]
@@ -32,8 +47,11 @@ class Invoice(OrgScopedMixin, Base):
 
 
 class Customer(OrgScopedMixin, Base):
+    """A customer, keyed by (org_id, customer_id) — see Invoice for why."""
+
     __tablename__ = "customers"
 
+    org_id: Mapped[str] = mapped_column(String, primary_key=True)
     customer_id: Mapped[str] = mapped_column(String, primary_key=True)
     customer_name: Mapped[str]
     industry: Mapped[str | None]
@@ -44,11 +62,29 @@ class Customer(OrgScopedMixin, Base):
 
 
 class Payment(OrgScopedMixin, Base):
+    """One settled payment.
+
+    Deliberately **not** foreign-keyed to `invoices`. Payment history is the
+    model's training signal and reaches further back than the open-invoice set —
+    `CanonicalPayment` says as much, noting the invoice "may have been archived
+    out of the canonical store". A foreign key here would mean the connector
+    could not deliver history for an invoice that has since been closed, which
+    is most of the history worth having.
+
+    The customer key is kept: customers are the stable dimension, and a payment
+    whose customer is unknown has nothing to attribute delay statistics to.
+    """
+
     __tablename__ = "payments"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["org_id", "customer_id"], ["customers.org_id", "customers.customer_id"]
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    invoice_id: Mapped[str] = mapped_column(ForeignKey("invoices.invoice_id"))
-    customer_id: Mapped[str] = mapped_column(ForeignKey("customers.customer_id"), index=True)
+    invoice_id: Mapped[str] = mapped_column(String, index=True)
+    customer_id: Mapped[str] = mapped_column(String, index=True)
     due_date: Mapped[date]
     actual_payment_date: Mapped[date | None]
     days_delayed: Mapped[int | None]
@@ -146,3 +182,28 @@ class User(OrgScopedMixin, Base):
     password_hash: Mapped[str]
     display_name: Mapped[str]
     created_at: Mapped[datetime]
+
+
+class SyncRun(OrgScopedMixin, Base):
+    """One connector sync attempt, successful or not (FR-001 AC-2).
+
+    A sync that fails has to leave a record saying so — otherwise "the queue is
+    empty" and "we never managed to read the book" look identical from the
+    outside, and the second one is an outage being read as good news.
+
+    Rows are kept rather than overwritten so a run that has been failing since
+    Tuesday is visible as a pattern instead of a single stale timestamp.
+    """
+
+    __tablename__ = "sync_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    source: Mapped[str]  # synthetic | tally
+    status: Mapped[str]  # SUCCESS | FAILED
+    started_at: Mapped[datetime]
+    finished_at: Mapped[datetime | None]
+    customers_synced: Mapped[int] = mapped_column(default=0)
+    invoices_synced: Mapped[int] = mapped_column(default=0)
+    payments_synced: Mapped[int] = mapped_column(default=0)
+    # Populated only on failure. Text because a driver traceback is not a label.
+    error: Mapped[str | None] = mapped_column(Text, default=None)

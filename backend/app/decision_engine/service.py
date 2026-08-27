@@ -165,39 +165,45 @@ def _load_portfolio(org_id: str = DEFAULT_ORG_ID):
     (FR-001). Everything downstream sees canonical types either way, so nothing
     else in the pipeline changes when this switches.
 
+    `settings.portfolio_source` chooses: `synthetic` (default) generates the
+    demo portfolio, `tally` reads a live company on every request, `database`
+    reads the canonical store that `POST /api/sync` populates.
+
     Defaults to synthetic: `TallyConnector` is implemented and tested against
     recorded fixtures, but ASM-01 — whether Tally's gateway is actually
-    reachable this way — has never been checked against a live instance. Set
-    `portfolio_source=tally` and `tally_company` to try it.
+    reachable this way — has never been checked against a live instance.
     """
+    if settings.portfolio_source == "database":
+        return _load_from_database(org_id)
     if settings.portfolio_source == "tally":
-        return _load_from_tally(org_id)
+        return _load_from_connector(org_id, "tally")
     return generate_dataset(org_id=org_id)
 
 
-def _load_from_tally(org_id: str) -> GeneratedDataset:
-    """One sync from a TallyPrime company, mapped into the canonical shapes.
+def _load_from_database(org_id: str) -> GeneratedDataset:
+    """Read the canonical store, populated by a connector sync (FR-001).
+
+    The shape FR-001 actually describes: the connector writes to the store on
+    its own schedule, and the queue reads the store. It decouples serving a
+    request from an accounting system being up.
+    """
+    from app.db.session import SessionLocal
+    from app.sync import load_portfolio
+
+    with SessionLocal() as session:
+        return load_portfolio(session, org_id=org_id)
+
+
+def _load_from_connector(org_id: str, source: str) -> GeneratedDataset:
+    """Read straight through a connector, without persisting.
 
     Returns the same container the synthetic path does rather than a new type —
     the point of the canonical layer is that the caller cannot tell which
     source it got.
     """
-    from app.connectors.tally import TallyConfig, TallyConnector
+    from app.connectors import get_connector
 
-    if not settings.tally_company:
-        raise RuntimeError(
-            "portfolio_source=tally requires tally_company — Tally selects a "
-            "company by its display name, and an empty one returns an empty "
-            "book rather than an error."
-        )
-
-    connector = TallyConnector(
-        TallyConfig(
-            company=settings.tally_company,
-            url=settings.tally_url,
-            history_days=settings.tally_history_days,
-        )
-    )
+    connector = get_connector(source)
     return GeneratedDataset(
         customers=connector.get_customers(org_id),
         invoices=connector.get_invoices(org_id),

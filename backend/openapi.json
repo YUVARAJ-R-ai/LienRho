@@ -602,6 +602,67 @@
         "title": "RuleFlagsOut",
         "type": "object"
       },
+      "SyncResultOut": {
+        "description": "One connector sync, successful or not (FR-001 AC-2).",
+        "properties": {
+          "customersSynced": {
+            "default": 0,
+            "title": "Customerssynced",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finishedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finishedat"
+          },
+          "invoicesSynced": {
+            "default": 0,
+            "title": "Invoicessynced",
+            "type": "integer"
+          },
+          "paymentsSynced": {
+            "default": 0,
+            "title": "Paymentssynced",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "startedAt": {
+            "title": "Startedat",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "status",
+          "startedAt"
+        ],
+        "title": "SyncResultOut",
+        "type": "object"
+      },
       "TokenResponse": {
         "properties": {
           "access_token": {
@@ -1047,6 +1108,72 @@
           }
         ],
         "summary": "Portfolio Summary",
+        "tags": [
+          "lienrho"
+        ]
+      }
+    },
+    "/api/sync": {
+      "get": {
+        "description": "The most recent sync for this org, successful or not.\n\nNull when none has ever run. Without this, \"the queue is empty\" and \"we\nhave never managed to read the book\" are indistinguishable from the\noutside, and the second is an outage reading as good news.",
+        "operationId": "sync_status_api_sync_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SyncResultOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Sync Status Api Sync Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Missing or invalid access token"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sync Status",
+        "tags": [
+          "lienrho"
+        ]
+      },
+      "post": {
+        "description": "Pull this org's book from the configured connector into the canonical\nstore (FR-001, on-demand half).\n\nReturns 200 with `status: \"FAILED\"` rather than a 5xx when the connector is\nunreachable. The request itself succeeded \u2014 the sync is what failed, and\nthat outcome is a recorded fact the caller needs to read, not an error to\nbe swallowed by a generic handler. The previous portfolio is untouched\n(AC-2).",
+        "operationId": "run_sync_api_sync_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncResultOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Missing or invalid access token"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Run Sync",
         "tags": [
           "lienrho"
         ]

@@ -179,6 +179,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sync Status
+         * @description The most recent sync for this org, successful or not.
+         *
+         *     Null when none has ever run. Without this, "the queue is empty" and "we
+         *     have never managed to read the book" are indistinguishable from the
+         *     outside, and the second is an outage reading as good news.
+         */
+        get: operations["sync_status_api_sync_get"];
+        put?: never;
+        /**
+         * Run Sync
+         * @description Pull this org's book from the configured connector into the canonical
+         *     store (FR-001, on-demand half).
+         *
+         *     Returns 200 with `status: "FAILED"` rather than a 5xx when the connector is
+         *     unreachable. The request itself succeeded — the sync is what failed, and
+         *     that outcome is a recorded fact the caller needs to read, not an error to
+         *     be swallowed by a generic handler. The previous portfolio is untouched
+         *     (AC-2).
+         */
+        post: operations["run_sync_api_sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/login": {
         parameters: {
             query?: never;
@@ -459,6 +494,37 @@ export interface components {
             tredsEligible: boolean;
             /** Tredsineligiblereason */
             tredsIneligibleReason: string | null;
+        };
+        /**
+         * SyncResultOut
+         * @description One connector sync, successful or not (FR-001 AC-2).
+         */
+        SyncResultOut: {
+            /**
+             * Customerssynced
+             * @default 0
+             */
+            customersSynced: number;
+            /** Error */
+            error?: string | null;
+            /** Finishedat */
+            finishedAt?: string | null;
+            /**
+             * Invoicessynced
+             * @default 0
+             */
+            invoicesSynced: number;
+            /**
+             * Paymentssynced
+             * @default 0
+             */
+            paymentsSynced: number;
+            /** Source */
+            source: string;
+            /** Startedat */
+            startedAt: string;
+            /** Status */
+            status: string;
         };
         /** TokenResponse */
         TokenResponse: {
@@ -762,6 +828,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortfolioSummaryOut"];
+                };
+            };
+            /** @description Missing or invalid access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sync_status_api_sync_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncResultOut"] | null;
+                };
+            };
+            /** @description Missing or invalid access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    run_sync_api_sync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncResultOut"];
                 };
             };
             /** @description Missing or invalid access token */

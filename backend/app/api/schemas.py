@@ -161,3 +161,18 @@ class PortfolioSummaryOut(BaseModel):
     open_invoices: int = Field(serialization_alias="openInvoices")
     shortfall_amount: float | None = Field(serialization_alias="shortfallAmount")
     shortfall_date: str | None = Field(serialization_alias="shortfallDate")
+
+
+class SyncResultOut(BaseModel):
+    """One connector sync, successful or not (FR-001 AC-2)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    source: str
+    status: str
+    started_at: str = Field(alias="startedAt")
+    finished_at: str | None = Field(default=None, alias="finishedAt")
+    customers_synced: int = Field(default=0, alias="customersSynced")
+    invoices_synced: int = Field(default=0, alias="invoicesSynced")
+    payments_synced: int = Field(default=0, alias="paymentsSynced")
+    error: str | None = None

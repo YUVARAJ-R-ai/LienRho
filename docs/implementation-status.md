@@ -8,7 +8,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 
 | ID | Requirement | State | Where | Notes |
 |---|---|---|---|---|
-| FR-001 | Ingest and normalize accounting data | 🟡 | `canonical/models.py`, `connectors/base.py`, `connectors/tally/` | `TallyConnector` implements the interface over Tally's XML gateway and is covered by 27 fixture-based tests; `_load_portfolio()` reads it when `portfolio_source=tally`. Still 🟡 because **ASM-01 is unverified** — no live TallyPrime has answered it (#6) |
+| FR-001 | Ingest and normalize accounting data | 🟡 | `connectors/`, `sync/`, `canonical/models.py` | All three ACs met: `POST /api/sync` writes the canonical store, a failed sync records itself and leaves the prior portfolio intact, and re-runs are idempotent. Scheduled sync via `sync_interval_minutes`. `portfolio_source=database` serves the queue from the store. Still 🟡 only because **ASM-01 is unverified** — no live TallyPrime has answered the connector (#6) |
 | FR-002 | Predict payment-delay probability | ✅ | `ml_core/model.py` | Four-bucket distribution, probabilities sum to 1.0 ± 0.01, no-history customers get neutral priors |
 | FR-003 | Explain each prediction | ✅ | `ml_core/model.py`, `ml_core/features.py` | Top 3 factors in plain language. Uses gain importance, not per-prediction SHAP — see [`model-card.md`](model-card.md) |
 | FR-004 | Forecast 30-day cash position | ✅ | `ml_core/forecast.py` | Probabilistic and conditioned on invoices still being unpaid (ADR-005) |
@@ -33,7 +33,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 | NFR-003 | Deterministic statutory computation            | ✅     | All statutory/eligibility/interest values come from named functions in `rules_engine/`, reached only through `agents/tools.ToolBox`, which records every call. The audit trail shows each one as a `TOOL` entry with its arguments and result |
 | NFR-004 | Action queue latency p95 ≤ 3.0s @ 100 invoices | ⬜     | **Not measured.** Needs a 100-invoice portfolio; the demo set is 30                                                                                                                                                                           |
 | NFR-005 | Model quality                                  | ✅     | ROC-AUC 0.834, ECE 0.031 — gate PASS. See [`model-card.md`](model-card.md)                                                                                                                                                                    |
-| NFR-006 | Connector extensibility                        | ✅     | Downstream modules depend only on canonical types; no connector-specific format leaks                                                                                                                                                         |
+| NFR-006 | Connector extensibility                        | ✅     | Acceptance criterion run for real: `SyntheticConnector` was added as a canned-data connector touching only `connectors/synthetic.py` and the registry in `connectors/__init__.py`. Downstream modules depend only on canonical types            |
 | NFR-007 | Decision traceability                          | 🟡    | Every queue item traces to its ML prediction and rule evaluation; not durable across restarts (#19)                                                                                                                                           |
 | NFR-008 | Recommendation explainability                  | 🟡    | Investigation screen leads with action + reason, then evidence. The ≥4/5 informal user test has not been run                                                                                                                                  |
 
@@ -66,7 +66,7 @@ synthetic portfolio (30 invoices, ₹42.6L) + communication threads
   → four Next.js screens reading the live API
 ```
 
-Backend: 311 tests passing, ruff clean. Frontend: typechecks, lints, builds.
+Backend: 326 tests passing, ruff clean. Frontend: typechecks, lints, builds.
 
 **Note for anyone setting up on macOS:** `xgboost` needs the OpenMP runtime, which
 is not a Python dependency. Without it every import of `app.ml_core` fails and

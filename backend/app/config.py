@@ -29,7 +29,25 @@ class Settings(BaseSettings):
     # the connector is implemented and tested against recorded fixtures, but has
     # never been run against a real instance, so making it the default would
     # stake the whole app on an unverified assumption.
-    portfolio_source: Literal["synthetic", "tally"] = "synthetic"
+    # Where the action queue reads its portfolio from:
+    #   synthetic / tally — read live from that connector on every request
+    #   database         — read the canonical store, populated by a sync
+    # "database" is the shape FR-001 describes; the live modes stay because the
+    # demo should not require a sync to have run first.
+    portfolio_source: Literal["synthetic", "tally", "database"] = "synthetic"
+
+    # Which connector a sync pulls *from*. Independent of the above: you sync
+    # from Tally into the store and then serve the queue from the store.
+    sync_connector: Literal["synthetic", "tally"] = "synthetic"
+
+    # Background sync interval in minutes; 0 disables it. FR-001 asks for
+    # scheduled *and* on-demand — POST /api/sync is the on-demand half. Off by
+    # default so a dev machine does not quietly hammer a Tally instance.
+    sync_interval_minutes: int = 0
+    # Orgs the scheduled sync covers. It runs outside a request, so there is no
+    # token to name the tenant and it has to be told.
+    sync_org_ids: str = ""
+
     tally_company: str = ""
     tally_url: str = "http://localhost:9000"
     tally_history_days: int = 365

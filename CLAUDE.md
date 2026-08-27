@@ -60,18 +60,19 @@ Pipeline, and where each stage lives:
 
 ```
 app/data/synthetic.py        portfolio (30 invoices) — the default source
-app/connectors/tally/        TallyConnector over Tally's XML gateway (#6); ASM-01 unverified
+app/connectors/               registry; synthetic.py + tally/ (#6, ASM-01 unverified)
+app/sync/                     connector → canonical store (FR-001); scheduler.py is the timed half
 app/ml_core/                 features.py → model.py (XGBoost, 4 delay buckets) → forecast.py (30-day cash)
 app/rules_engine/            msmed.py, treds.py — deterministic, the only implementations of each rule
 app/agents/                  investigator.py (reads comms), strategy.py (Track A/B/C), via tools.py
 app/decision_engine/         engine.py (ranking + approval gate), service.py (assembles everything)
 app/outreach/                drafts.py (FR-011), treds_submission.py (FR-012), dossier.py (FR-013)
-app/api/routes.py            /api/action-queue, /summary, /forecast, /invoice/{id},
+app/api/routes.py            /api/action-queue, /summary, /forecast, /sync, /invoice/{id},
                              /invoice/{id}/draft, /invoice/{id}/artifact, /actions/{id}/approve|reject
 frontend/src/app/            page.tsx (queue), invoice/[id], forecast, approvals
 ```
 
-`decision_engine/service.py::build_action_queue` is the seam where all layers meet — read it first to understand the system. `_load_portfolio()` there is the single swap point for a live connector sync; nothing else changes. `settings.portfolio_source` selects `synthetic` (default) or `tally`.
+`decision_engine/service.py::build_action_queue` is the seam where all layers meet — read it first to understand the system. `_load_portfolio()` there is the single swap point for a live connector sync; nothing else changes. `settings.portfolio_source` selects `synthetic` (default), `tally` (live read per request), or `database` (the canonical store, populated by `POST /api/sync`).
 
 Both agents ship as **two implementations behind one interface**: `RuleBasedInvestigator`/`RuleBasedStrategist` run today with no external dependency, `LLMInvestigator`/`LLMStrategist` are the production path unblocked when `OQ-02` (LLM provider) resolves. Both return the same validated object and make the same tool calls, so the Decision Engine can't tell them apart. The rule-based versions are the permanent fallback, not placeholders to delete. Selection logic is currently rule-based, not model-driven — say so accurately.
 

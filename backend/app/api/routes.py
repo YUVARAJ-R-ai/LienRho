@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
 from app.api.schemas import (
     ActionQueueItemOut,
@@ -21,8 +22,10 @@ from app.api.schemas import (
     PortfolioSummaryOut,
     PredictionFactorOut,
     RuleFlagsOut,
+    SyncResultOut,
 )
 from app.db.scoping import Principal, get_current_org_id, get_current_principal
+from app.db.session import get_db
 from app.decision_engine.engine import ApprovalRequired
 from app.decision_engine.service import (
     build_action_queue,
@@ -415,3 +418,62 @@ def _findings_out(findings) -> AgentFindingsOut:
         confidence=findings.confidence,
         evidence=evidence,
     )
+
+
+# --------------------------------------------------------------- sync (FR-001)
+
+
+def _sync_out(result) -> SyncResultOut:
+    return SyncResultOut(
+        source=result.source,
+        status=result.status,
+        started_at=result.started_at.isoformat(),
+        finished_at=result.finished_at.isoformat() if result.finished_at else None,
+        customers_synced=result.customers_synced,
+        invoices_synced=result.invoices_synced,
+        payments_synced=result.payments_synced,
+        error=result.error,
+    )
+
+
+@router.post("/sync", response_model=SyncResultOut, response_model_by_alias=True)
+def run_sync(
+    org_id: str = Depends(get_current_org_id), db: Session = Depends(get_db)
+) -> SyncResultOut:
+    """Pull this org's book from the configured connector into the canonical
+    store (FR-001, on-demand half).
+
+    Returns 200 with `status: "FAILED"` rather than a 5xx when the connector is
+    unreachable. The request itself succeeded — the sync is what failed, and
+    that outcome is a recorded fact the caller needs to read, not an error to
+    be swallowed by a generic handler. The previous portfolio is untouched
+    (AC-2).
+    """
+    from app.config import settings
+    from app.connectors import get_connector
+    from app.sync import sync_portfolio
+
+    source = settings.sync_connector
+    try:
+        connector = get_connector(source)
+    except (RuntimeError, ValueError) as exc:
+        # Misconfiguration, not a sync failure: there is nothing to attempt.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return _sync_out(sync_portfolio(db, org_id=org_id, connector=connector, source=source))
+
+
+@router.get("/sync", response_model=SyncResultOut | None, response_model_by_alias=True)
+def sync_status(
+    org_id: str = Depends(get_current_org_id), db: Session = Depends(get_db)
+) -> SyncResultOut | None:
+    """The most recent sync for this org, successful or not.
+
+    Null when none has ever run. Without this, "the queue is empty" and "we
+    have never managed to read the book" are indistinguishable from the
+    outside, and the second is an outage reading as good news.
+    """
+    from app.sync import last_sync
+
+    result = last_sync(db, org_id=org_id)
+    return _sync_out(result) if result else None
