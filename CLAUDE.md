@@ -59,7 +59,8 @@ Modular monolith — one FastAPI deployable with module boundaries mirroring tea
 Pipeline, and where each stage lives:
 
 ```
-app/data/synthetic.py        portfolio (30 invoices) — stands in for the Tally sync
+app/data/synthetic.py        portfolio (30 invoices) — the default source
+app/connectors/tally/        TallyConnector over Tally's XML gateway (#6); ASM-01 unverified
 app/ml_core/                 features.py → model.py (XGBoost, 4 delay buckets) → forecast.py (30-day cash)
 app/rules_engine/            msmed.py, treds.py — deterministic, the only implementations of each rule
 app/agents/                  investigator.py (reads comms), strategy.py (Track A/B/C), via tools.py
@@ -70,7 +71,7 @@ app/api/routes.py            /api/action-queue, /summary, /forecast, /invoice/{i
 frontend/src/app/            page.tsx (queue), invoice/[id], forecast, approvals
 ```
 
-`decision_engine/service.py::build_action_queue` is the seam where all layers meet — read it first to understand the system. `_load_portfolio()` there is the single swap point for a live connector sync; nothing else changes.
+`decision_engine/service.py::build_action_queue` is the seam where all layers meet — read it first to understand the system. `_load_portfolio()` there is the single swap point for a live connector sync; nothing else changes. `settings.portfolio_source` selects `synthetic` (default) or `tally`.
 
 Both agents ship as **two implementations behind one interface**: `RuleBasedInvestigator`/`RuleBasedStrategist` run today with no external dependency, `LLMInvestigator`/`LLMStrategist` are the production path unblocked when `OQ-02` (LLM provider) resolves. Both return the same validated object and make the same tool calls, so the Decision Engine can't tell them apart. The rule-based versions are the permanent fallback, not placeholders to delete. Selection logic is currently rule-based, not model-driven — say so accurately.
 
@@ -82,6 +83,7 @@ Both agents ship as **two implementations behind one interface**: `RuleBasedInve
 - **MSMED overdue counts from the §15 appointed day**, not the invoice due date — callers must pass the actual `agreed_credit_days`, or every invoice silently gets the full 45 days. Boundary: 44 days = false, 45 = true.
 - **Auth is real now** (#20): `app/db/scoping.py` derives `org_id` from a signed bearer token, not a header. `/api/*` requires one — the dependency sits on the router so a new endpoint cannot ship unauthenticated. Seed a login with `uv run python -m app.auth.seed` (`demo@lienrho.local` / `lienrho-demo`). The frontend keeps the token in an httpOnly cookie, so browser-side calls (approve/reject, draft) go through Next route handlers rather than straight to FastAPI.
 - **Approvals and the audit trail are durable** (#19). The queue is derived on every request, so a decision stored on a recommendation object would vanish with it; decisions live in an `ApprovalStore` (`decision_engine/store.py`) and are replayed onto each rebuild. `settings.audit_store` picks `postgres` or the in-memory fallback — it never probes and falls back silently, because an audit trail that quietly stops being durable is indistinguishable from one that works.
+- **The Tally connector is unverified against a live instance** (`ASM-01`, #6). It is built to Tally's documented XML gateway format and tested against recorded fixtures in `tests/fixtures/tally/`, so envelope construction, failure handling, and canonical mapping are all covered — but no real TallyPrime has ever answered it. `parser.py` accepts several documented spellings per field for that reason. Two refusals matter: Tally answers a *rejected* request with HTTP 200 and `STATUS 0`, which must not read as an empty book, and an unparseable amount raises rather than becoming a zero that would silently clear a statutory breach.
 - **The three artifacts gate themselves.** `assert_executable()` is called inside each generator rather than once upstream, so a new generator cannot quietly skip it. Drafts are deliberately ungated — a draft is what the user reads in order to decide.
 - **`frontend/src/lib/types.ts` is derived, not written** (#21). It aliases onto `src/lib/api-types.ts`, generated from `backend/openapi.json` — regenerate both with `npm run generate:types` in `frontend/`, and commit the result; CI diffs them and fails if stale. The narrowed string unions carry `_DriftGuards` assertions, because `Omit<T, "k">` does not error when `k` is absent from `T` and a rename would otherwise slip through. Backend schemas use camelCase aliases (`response_model_by_alias=True`), and the schema carries the aliases.
 - `frontend/CLAUDE.md` points at `frontend/AGENTS.md`, which `next dev` rewrites — Next.js 16 has breaking changes from training data; read `frontend/node_modules/next/dist/docs/` before writing frontend code.

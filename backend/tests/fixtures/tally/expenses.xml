@@ -1,0 +1,14 @@
+<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><STATUS>1</STATUS></HEADER>
+  <BODY>
+    <DATA>
+      <COLLECTION>
+        <LEDGER NAME="Salaries">
+          <NAME>Salaries</NAME>
+          <PARENT>Indirect Expenses</PARENT>
+          <CLOSINGBALANCE>1800000.00</CLOSINGBALANCE>
+        </LEDGER>
+      </COLLECTION>
+    </DATA>
+  </BODY>
+</ENVELOPE>

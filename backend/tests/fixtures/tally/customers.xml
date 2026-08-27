@@ -1,0 +1,22 @@
+<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><STATUS>1</STATUS></HEADER>
+  <BODY>
+    <DATA>
+      <COLLECTION>
+        <LEDGER NAME="ABC Logistics Pvt Ltd">
+          <NAME>ABC Logistics Pvt Ltd</NAME>
+          <PARENT>Sundry Debtors</PARENT>
+          <EMAIL>accounts@abclogistics.example</EMAIL>
+          <OPENINGBALANCE>-250000.00</OPENINGBALANCE>
+          <CLOSINGBALANCE>-412000.00</CLOSINGBALANCE>
+          <BILLCREDITPERIOD>30 Days</BILLCREDITPERIOD>
+        </LEDGER>
+        <LEDGER NAME="Global Retail Ltd">
+          <NAME>Global Retail Ltd</NAME>
+          <PARENT>Sundry Debtors</PARENT>
+          <CLOSINGBALANCE>-880000.00</CLOSINGBALANCE>
+        </LEDGER>
+      </COLLECTION>
+    </DATA>
+  </BODY>
+</ENVELOPE>

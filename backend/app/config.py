@@ -20,6 +20,17 @@ class Settings(BaseSettings):
     # difference until the trail is needed.
     audit_store: Literal["postgres", "memory"] = "postgres"
 
+    # --- Portfolio source (FR-001, CON-02, #6) ------------------------------
+    # "synthetic" is the demo dataset; "tally" reads a live TallyPrime company
+    # over its XML gateway. Defaults to synthetic because ASM-01 is still open —
+    # the connector is implemented and tested against recorded fixtures, but has
+    # never been run against a real instance, so making it the default would
+    # stake the whole app on an unverified assumption.
+    portfolio_source: Literal["synthetic", "tally"] = "synthetic"
+    tally_company: str = ""
+    tally_url: str = "http://localhost:9000"
+    tally_history_days: int = 365
+
     # --- Auth (NFR-001, NFR-002) --------------------------------------------
     # The signing key for access tokens. The default is a visible dev-only
     # placeholder: `require_production_secrets()` refuses to serve with it when

@@ -17,8 +17,15 @@ from functools import lru_cache
 
 from app.agents.investigator import get_investigator
 from app.agents.strategy import StrategyContext, get_strategist
+from app.config import settings
 from app.data.communications import build_threads
-from app.data.synthetic import AS_OF, DEFAULT_ORG_ID, DEMO_SUPPLIER, generate_dataset
+from app.data.synthetic import (
+    AS_OF,
+    DEFAULT_ORG_ID,
+    DEMO_SUPPLIER,
+    GeneratedDataset,
+    generate_dataset,
+)
 from app.decision_engine.engine import (
     ActionRecommendation,
     RecommendedAction,
@@ -154,11 +161,48 @@ def _load_model() -> DelayModel | None:
 def _load_portfolio(org_id: str = DEFAULT_ORG_ID):
     """Current open invoices, customers, and payment history.
 
-    Replace with a connector sync (FR-001) when the Tally adapter lands — this
-    is the single swap point, and `org_id` is already the argument a real
-    connector would scope its read by.
+    The single swap point between the demo dataset and a live accounting sync
+    (FR-001). Everything downstream sees canonical types either way, so nothing
+    else in the pipeline changes when this switches.
+
+    Defaults to synthetic: `TallyConnector` is implemented and tested against
+    recorded fixtures, but ASM-01 — whether Tally's gateway is actually
+    reachable this way — has never been checked against a live instance. Set
+    `portfolio_source=tally` and `tally_company` to try it.
     """
+    if settings.portfolio_source == "tally":
+        return _load_from_tally(org_id)
     return generate_dataset(org_id=org_id)
+
+
+def _load_from_tally(org_id: str) -> GeneratedDataset:
+    """One sync from a TallyPrime company, mapped into the canonical shapes.
+
+    Returns the same container the synthetic path does rather than a new type —
+    the point of the canonical layer is that the caller cannot tell which
+    source it got.
+    """
+    from app.connectors.tally import TallyConfig, TallyConnector
+
+    if not settings.tally_company:
+        raise RuntimeError(
+            "portfolio_source=tally requires tally_company — Tally selects a "
+            "company by its display name, and an empty one returns an empty "
+            "book rather than an error."
+        )
+
+    connector = TallyConnector(
+        TallyConfig(
+            company=settings.tally_company,
+            url=settings.tally_url,
+            history_days=settings.tally_history_days,
+        )
+    )
+    return GeneratedDataset(
+        customers=connector.get_customers(org_id),
+        invoices=connector.get_invoices(org_id),
+        payments=connector.get_payments(org_id),
+    )
 
 
 def build_action_queue(
