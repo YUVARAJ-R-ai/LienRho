@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     # difference until the trail is needed.
     audit_store: Literal["postgres", "memory"] = "postgres"
 
+    # --- Auth (NFR-001, NFR-002) --------------------------------------------
+    # The signing key for access tokens. The default is a visible dev-only
+    # placeholder: `require_production_secrets()` refuses to serve with it when
+    # environment != "development", so a deployment cannot inherit it silently.
+    jwt_secret: str = "dev-only-insecure-signing-key-not-for-deployment"
+    jwt_ttl_minutes: int = 12 * 60
+
     # --- LLM gateway (OQ-02) ------------------------------------------------
     # The agent layer talks to an OpenAI-compatible endpoint (LiteLLM gateway
     # or a direct provider). Until a gateway + virtual key exist, the factories
@@ -38,3 +45,18 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+DEV_JWT_SECRET = "dev-only-insecure-signing-key-not-for-deployment"
+
+
+def require_production_secrets() -> None:
+    """Fail fast if a non-development environment is using the dev signing key.
+
+    Checked at app startup rather than at first login, so the problem surfaces
+    on deploy instead of on the first request that happens to authenticate.
+    """
+    if settings.environment != "development" and settings.jwt_secret == DEV_JWT_SECRET:
+        raise RuntimeError(
+            f"jwt_secret is still the development default while environment="
+            f"{settings.environment!r}. Set JWT_SECRET before serving (NFR-002)."
+        )

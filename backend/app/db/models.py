@@ -114,3 +114,35 @@ class AuditLogEntry(OrgScopedMixin, Base):
     decided_by: Mapped[str]  # ML | RULES | TOOL | AGENT | HUMAN
     what: Mapped[str] = mapped_column(Text)
     why: Mapped[str] = mapped_column(Text)
+
+
+class Org(OrgScopedMixin, Base):
+    """A tenant. The root of every org_id in this schema (NFR-001, BR-TENANT).
+
+    `org_id` is the primary key rather than a surrogate: it is what every other
+    table already carries and what the access token asserts, so a second
+    identifier would only create a mapping that could disagree with itself.
+    """
+
+    __tablename__ = "orgs"
+
+    org_id: Mapped[str] = mapped_column(String, primary_key=True)
+    org_name: Mapped[str]
+    created_at: Mapped[datetime]
+
+
+class User(OrgScopedMixin, Base):
+    """A person who signs in, belonging to exactly one org.
+
+    Email is globally unique, not unique per org. Two orgs sharing one login
+    would make the token's `org` claim ambiguous, and the whole point of the
+    claim is that it is not.
+    """
+
+    __tablename__ = "users"
+
+    user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    email: Mapped[str] = mapped_column(String, unique=True, index=True)
+    password_hash: Mapped[str]
+    display_name: Mapped[str]
+    created_at: Mapped[datetime]

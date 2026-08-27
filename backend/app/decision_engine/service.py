@@ -151,19 +151,21 @@ def _load_model() -> DelayModel | None:
         return None
 
 
-def _load_portfolio():
+def _load_portfolio(org_id: str = DEFAULT_ORG_ID):
     """Current open invoices, customers, and payment history.
 
-    Replace with a connector sync (FR-001) when the Tally adapter lands.
+    Replace with a connector sync (FR-001) when the Tally adapter lands — this
+    is the single swap point, and `org_id` is already the argument a real
+    connector would scope its read by.
     """
-    return generate_dataset()
+    return generate_dataset(org_id=org_id)
 
 
 def build_action_queue(
     as_of: date = AS_OF, org_id: str = DEFAULT_ORG_ID
 ) -> list[ActionRecommendation]:
     """Score, evaluate, and rank every open invoice into the daily queue."""
-    data = _load_portfolio()
+    data = _load_portfolio(org_id)
     model = _load_model()
     stats = build_customer_stats(data.payments)
     customers = {c.customer_id: c for c in data.customers}
@@ -184,7 +186,7 @@ def build_action_queue(
         predictions[invoice.invoice_id] = prediction.probabilities
         probability_over_45[invoice.invoice_id] = prediction.probability_over_45_days
 
-    forecast = get_cash_forecast(as_of=as_of)
+    forecast = get_cash_forecast(as_of=as_of, org_id=org_id)
     # Only *material* contributors escalate an invoice to Critical. Every open
     # invoice contributes some probability mass to a shortfall, so ranking alone
     # would mark low-risk invoices critical purely for being large.
@@ -290,11 +292,11 @@ def build_action_queue(
     return rank_queue([_apply_approval(r, org_id=org_id) for r in recommendations])
 
 
-def get_cash_forecast(as_of: date = AS_OF):
+def get_cash_forecast(as_of: date = AS_OF, org_id: str = DEFAULT_ORG_ID):
     """30-day forecast over the current portfolio (FR-004, FR-015)."""
     from app.canonical.models import BusinessFinancialState
 
-    data = _load_portfolio()
+    data = _load_portfolio(org_id)
     model = _load_model()
     stats = build_customer_stats(data.payments)
     customers = {c.customer_id: c for c in data.customers}
@@ -310,7 +312,7 @@ def get_cash_forecast(as_of: date = AS_OF):
             predictions[invoice.invoice_id] = model.predict(features).probabilities
 
     state = BusinessFinancialState(
-        org_id="ORG-DEMO",
+        org_id=org_id,
         as_of_date=as_of,
         current_cash=DEMO_STATE_CASH,
         expected_inflows=Decimal(0),
@@ -328,15 +330,22 @@ def get_cash_forecast(as_of: date = AS_OF):
     )
 
 
-def get_investigation(invoice_id: str, as_of: date = AS_OF) -> dict | None:
+def get_investigation(
+    invoice_id: str, as_of: date = AS_OF, org_id: str = DEFAULT_ORG_ID
+) -> dict | None:
     """Full detail for one invoice (FR-003, FR-007, FR-014)."""
-    data = _load_portfolio()
+    data = _load_portfolio(org_id)
     invoice = next((i for i in data.invoices if i.invoice_id == invoice_id), None)
     if invoice is None:
         return None
 
     recommendation = next(
-        (r for r in build_action_queue(as_of=as_of) if r.invoice_id == invoice_id), None
+        (
+            r
+            for r in build_action_queue(as_of=as_of, org_id=org_id)
+            if r.invoice_id == invoice_id
+        ),
+        None,
     )
 
     model = _load_model()
@@ -418,9 +427,9 @@ def _summarize_findings(finding) -> str | None:
     return "No payment promise or dispute found in correspondence"
 
 
-def get_findings(invoice_id: str, as_of: date = AS_OF):
+def get_findings(invoice_id: str, as_of: date = AS_OF, org_id: str = DEFAULT_ORG_ID):
     """Investigator findings for one invoice, for the investigation screen."""
-    data = _load_portfolio()
+    data = _load_portfolio(org_id)
     threads = build_threads(data.invoices)
     thread = threads.get(invoice_id)
     if thread is None:
@@ -436,6 +445,7 @@ def build_draft(
     *,
     channel: DraftChannel = DraftChannel.EMAIL,
     as_of: date = AS_OF,
+    org_id: str = DEFAULT_ORG_ID,
 ) -> ReminderDraft | None:
     """Draft a reminder for one invoice (FR-011).
 
@@ -444,7 +454,7 @@ def build_draft(
     whole flow exists for. The approval gate sits in front of sending, and
     sending is the user's own action (OQ-01 → drafted-in-UI).
     """
-    data = _load_portfolio()
+    data = _load_portfolio(org_id)
     invoice = next((i for i in data.invoices if i.invoice_id == invoice_id), None)
     if invoice is None:
         return None
@@ -461,14 +471,17 @@ def build_draft(
             due_date=invoice.due_date,
             days_overdue=max((as_of - invoice.due_date).days, 0),
             supplier_name=DEMO_SUPPLIER.legal_name,
-            findings=get_findings(invoice_id, as_of=as_of),
+            findings=get_findings(invoice_id, as_of=as_of, org_id=org_id),
         ),
         channel=channel,
     )
 
 
 def build_artifact(
-    recommendation: ActionRecommendation, *, as_of: date = AS_OF
+    recommendation: ActionRecommendation,
+    *,
+    as_of: date = AS_OF,
+    org_id: str = DEFAULT_ORG_ID,
 ) -> ReminderDraft | TredsSubmission | EscalationDossier | None:
     """The artifact this recommendation's action produces (FR-011/012/013).
 
@@ -477,7 +490,7 @@ def build_artifact(
     reminder for. The gate lives inside each builder, not here — putting it in
     one place upstream would mean a new builder could quietly skip it.
     """
-    data = _load_portfolio()
+    data = _load_portfolio(org_id)
     invoice = next(
         (i for i in data.invoices if i.invoice_id == recommendation.invoice_id), None
     )
@@ -507,4 +520,4 @@ def build_artifact(
             as_of=as_of,
         )
 
-    return build_draft(invoice.invoice_id, as_of=as_of)
+    return build_draft(invoice.invoice_id, as_of=as_of, org_id=org_id)

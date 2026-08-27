@@ -10,7 +10,6 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
 
 from app.agents.schemas import InvestigatorFindings
 from app.canonical.models import (
@@ -36,7 +35,6 @@ from app.decision_engine.service import (
     decide_on_action,
     reset_approvals,
 )
-from app.main import app
 from app.outreach.dossier import SECTION_TITLES, build_dossier
 from app.outreach.drafts import (
     DraftChannel,
@@ -52,6 +50,7 @@ from app.outreach.treds_submission import (
     TredsSubmission,
     build_treds_submission,
 )
+from tests.support import authenticated_client
 
 
 @pytest.fixture(autouse=True)
@@ -496,7 +495,8 @@ def test_build_artifact_dispatches_on_the_recommended_action():
 
 # ------------------------------------------------------------------ API surface
 
-client = TestClient(app)
+# Every /api route requires a bearer token now (#20); this client carries one.
+client = authenticated_client()
 
 
 def test_draft_endpoint_returns_a_reminder():

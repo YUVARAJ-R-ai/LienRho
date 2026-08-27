@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.schemas import (
     ActionQueueItemOut,
@@ -22,6 +22,7 @@ from app.api.schemas import (
     PredictionFactorOut,
     RuleFlagsOut,
 )
+from app.db.scoping import Principal, get_current_org_id, get_current_principal
 from app.decision_engine.engine import ApprovalRequired
 from app.decision_engine.service import (
     build_action_queue,
@@ -37,7 +38,16 @@ from app.outreach.dossier import EscalationDossier
 from app.outreach.drafts import DraftChannel, ReminderDraft
 from app.outreach.treds_submission import TredsIneligible, TredsSubmission
 
-router = APIRouter(prefix="/api", tags=["lienrho"])
+# Auth is declared on the router, not on each endpoint. A dependency listed
+# here applies to every route below it including ones added later, so a new
+# endpoint cannot quietly ship unauthenticated — the same reasoning that puts
+# the approval gate inside each artifact generator rather than once upstream.
+router = APIRouter(
+    prefix="/api",
+    tags=["lienrho"],
+    dependencies=[Depends(get_current_principal)],
+    responses={401: {"description": "Missing or invalid access token"}},
+)
 
 
 def _prediction_out(probabilities: dict[str, float]) -> DelayPredictionOut:
@@ -63,7 +73,7 @@ def _invoice_out(rec) -> InvoiceOut:
 
 
 @router.get("/action-queue", response_model=list[ActionQueueItemOut], response_model_by_alias=True)
-def action_queue() -> list[ActionQueueItemOut]:
+def action_queue(org_id: str = Depends(get_current_org_id)) -> list[ActionQueueItemOut]:
     """The prioritized daily action queue (FR-009)."""
     return [
         ActionQueueItemOut(
@@ -75,15 +85,15 @@ def action_queue() -> list[ActionQueueItemOut]:
             approval_state=rec.approval_state.value,
             prediction=_prediction_out(rec.delay_probabilities),
         )
-        for rec in build_action_queue()
+        for rec in build_action_queue(org_id=org_id)
     ]
 
 
 @router.get("/summary", response_model=PortfolioSummaryOut, response_model_by_alias=True)
-def portfolio_summary() -> PortfolioSummaryOut:
+def portfolio_summary(org_id: str = Depends(get_current_org_id)) -> PortfolioSummaryOut:
     """Headline figures for the dashboard."""
-    queue = build_action_queue()
-    forecast = get_cash_forecast()
+    queue = build_action_queue(org_id=org_id)
+    forecast = get_cash_forecast(org_id=org_id)
 
     total = sum((r.invoice_amount for r in queue), Decimal(0))
     # "At risk" is the value of everything the model expects to run past 45 days.
@@ -110,10 +120,10 @@ def portfolio_summary() -> PortfolioSummaryOut:
 
 
 @router.get("/forecast", response_model=CashForecastOut, response_model_by_alias=True)
-def cash_forecast() -> CashForecastOut:
+def cash_forecast(org_id: str = Depends(get_current_org_id)) -> CashForecastOut:
     """30-day rolling cash forecast with shortfall contributors (FR-004, FR-015)."""
-    forecast = get_cash_forecast()
-    queue_by_id = {r.invoice_id: r for r in build_action_queue()}
+    forecast = get_cash_forecast(org_id=org_id)
+    queue_by_id = {r.invoice_id: r for r in build_action_queue(org_id=org_id)}
 
     return CashForecastOut(
         points=[
@@ -146,9 +156,11 @@ def cash_forecast() -> CashForecastOut:
 @router.get(
     "/invoice/{invoice_id}", response_model=InvestigationOut, response_model_by_alias=True
 )
-def investigation(invoice_id: str) -> InvestigationOut:
+def investigation(
+    invoice_id: str, org_id: str = Depends(get_current_org_id)
+) -> InvestigationOut:
     """Full investigation detail for one invoice (FR-003, FR-007, FR-014)."""
-    data = get_investigation(invoice_id)
+    data = get_investigation(invoice_id, org_id=org_id)
     if data is None:
         raise HTTPException(status_code=404, detail=f"Invoice {invoice_id} not found")
 
@@ -194,7 +206,7 @@ def investigation(invoice_id: str) -> InvestigationOut:
                 None if data["treds"]["eligible"] else data["treds"]["reason"]
             ),
         ),
-        findings=_findings_out(get_findings(invoice_id)),
+        findings=_findings_out(get_findings(invoice_id, org_id=org_id)),
         recommended_action=rec.recommended_action.value,
         reason=rec.reason,
         approval_state=rec.approval_state.value,
@@ -245,13 +257,17 @@ def _artifact_out(artifact) -> ArtifactOut | None:
 
 
 @router.get("/invoice/{invoice_id}/draft", response_model=ArtifactOut)
-def invoice_draft(invoice_id: str, channel: DraftChannel = DraftChannel.EMAIL) -> ArtifactOut:
+def invoice_draft(
+    invoice_id: str,
+    channel: DraftChannel = DraftChannel.EMAIL,
+    org_id: str = Depends(get_current_org_id),
+) -> ArtifactOut:
     """Draft a reminder for one invoice (FR-011).
 
     Not gated on approval — the draft is what the user reads in order to decide.
     Sending it is their own action in their own client (OQ-01).
     """
-    draft = build_draft(invoice_id, channel=channel)
+    draft = build_draft(invoice_id, channel=channel, org_id=org_id)
     if draft is None:
         raise HTTPException(status_code=404, detail=f"Invoice {invoice_id} not found")
 
@@ -261,7 +277,9 @@ def invoice_draft(invoice_id: str, channel: DraftChannel = DraftChannel.EMAIL) -
 
 
 @router.get("/invoice/{invoice_id}/artifact", response_model=ArtifactOut)
-def invoice_artifact(invoice_id: str) -> ArtifactOut:
+def invoice_artifact(
+    invoice_id: str, org_id: str = Depends(get_current_org_id)
+) -> ArtifactOut:
     """Re-fetch the artifact an approved action produced (FR-011/012/013).
 
     Without this, an approved dossier would exist only in the browser tab that
@@ -272,13 +290,13 @@ def invoice_artifact(invoice_id: str) -> ArtifactOut:
     approved, so this is a way to re-read a decision, not to bypass one.
     """
     recommendation = next(
-        (r for r in build_action_queue() if r.invoice_id == invoice_id), None
+        (r for r in build_action_queue(org_id=org_id) if r.invoice_id == invoice_id), None
     )
     if recommendation is None:
         raise HTTPException(status_code=404, detail=f"Invoice {invoice_id} not found")
 
     try:
-        artifact = _artifact_out(build_artifact(recommendation))
+        artifact = _artifact_out(build_artifact(recommendation, org_id=org_id))
     except ApprovalRequired as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except TredsIneligible as exc:
@@ -295,16 +313,20 @@ def invoice_artifact(invoice_id: str) -> ArtifactOut:
     return artifact
 
 
-def _decide(invoice_id: str, *, approved: bool, actor: str) -> ApprovalResultOut:
+def _decide(
+    invoice_id: str, *, approved: bool, actor: str, org_id: str
+) -> ApprovalResultOut:
     """Shared body for approve and reject (FR-010, BR-APPROVAL)."""
-    recommendation = decide_on_action(invoice_id, approved=approved, actor=actor)
+    recommendation = decide_on_action(
+        invoice_id, approved=approved, actor=actor, org_id=org_id
+    )
     if recommendation is None:
         raise HTTPException(status_code=404, detail=f"Invoice {invoice_id} not found")
 
     artifact = None
     if approved:
         try:
-            artifact = _artifact_out(build_artifact(recommendation))
+            artifact = _artifact_out(build_artifact(recommendation, org_id=org_id))
         except TredsIneligible as exc:
             # The approval itself stands — the user decided, and that decision is
             # recorded. What failed is the submission, and saying which condition
@@ -332,19 +354,29 @@ def _decide(invoice_id: str, *, approved: bool, actor: str) -> ApprovalResultOut
 
 
 @router.post("/actions/{invoice_id}/approve", response_model=ApprovalResultOut)
-def approve_action(invoice_id: str, actor: str = "demo-user") -> ApprovalResultOut:
+def approve_action(
+    invoice_id: str, principal: Principal = Depends(get_current_principal)
+) -> ApprovalResultOut:
     """Approve a recommendation and generate what it produces (FR-010, FR-012, FR-013).
 
-    `actor` is a query parameter because auth is still stubbed (#20). Once real
-    identity exists it comes from the token, not the caller.
+    `actor` comes from the verified token, never from the request. FR-014 asks
+    who decided; a caller-supplied name would let anyone sign the audit trail
+    with somebody else's identity, which is the one thing that record exists to
+    prevent.
     """
-    return _decide(invoice_id, approved=True, actor=actor)
+    return _decide(
+        invoice_id, approved=True, actor=principal.email, org_id=principal.org_id
+    )
 
 
 @router.post("/actions/{invoice_id}/reject", response_model=ApprovalResultOut)
-def reject_action(invoice_id: str, actor: str = "demo-user") -> ApprovalResultOut:
+def reject_action(
+    invoice_id: str, principal: Principal = Depends(get_current_principal)
+) -> ApprovalResultOut:
     """Reject a recommendation. Invoice state is left unchanged (FR-010 AC-2)."""
-    return _decide(invoice_id, approved=False, actor=actor)
+    return _decide(
+        invoice_id, approved=False, actor=principal.email, org_id=principal.org_id
+    )
 
 
 def _findings_out(findings) -> AgentFindingsOut:

@@ -12,11 +12,13 @@ Backend (`cd backend`, uses `uv`, Python 3.12+):
 docker compose up -d                      # Postgres on :5432
 uv sync
 uv run alembic upgrade head
+uv run python -m app.auth.seed            # demo org + login (idempotent)
 uv run python -m app.ml_core.train        # trains delay model; CUDA with CPU fallback (--cpu forces CPU)
 uv run uvicorn app.main:app --reload      # :8000
-./run-dev.sh start|stop|status            # same, detached, nice'd, 12 cores; log at /tmp/lienrho-api.log
+./run-dev.sh start|stop|status            # same, detached, nice'd; log at /tmp/lienrho-api.log
+                                          # setsid/taskset are Linux-only and skipped elsewhere
 
-uv run pytest -q                          # ~206 tests
+uv run pytest -q                          # ~276 tests; no database needed
 uv run pytest tests/test_msmed.py::test_name -q   # single test
 uv run ruff check . --fix                 # line-length 100, migrations excluded
 ```
@@ -77,8 +79,8 @@ Both agents ship as **two implementations behind one interface**: `RuleBasedInve
 - **The forecast under-promises on purpose** (`ADR-005`). Treat any change that raises projected cash with suspicion.
 - **Financing keys off whether a shortfall exists, not which invoice caused it** (`ADR-006`). The invoice driving a shortfall is usually the one no financier will discount.
 - **MSMED overdue counts from the §15 appointed day**, not the invoice due date — callers must pass the actual `agreed_credit_days`, or every invoice silently gets the full 45 days. Boundary: 44 days = false, 45 = true.
-- **Auth is stubbed**: `app/db/scoping.py` trusts an unverified `X-Org-Id` header, so `NFR-001` does not hold yet. Local dev only (#20).
-- **Approvals and the audit trail are in memory** and reset on API restart (#19). Decisions live in `_APPROVALS` in `decision_engine/service.py` and are replayed onto the queue as it rebuilds — the queue is derived on every request, so an approval stored on a recommendation object would vanish with it.
+- **Auth is real now** (#20): `app/db/scoping.py` derives `org_id` from a signed bearer token, not a header. `/api/*` requires one — the dependency sits on the router so a new endpoint cannot ship unauthenticated. Seed a login with `uv run python -m app.auth.seed` (`demo@lienrho.local` / `lienrho-demo`). The frontend keeps the token in an httpOnly cookie, so browser-side calls (approve/reject, draft) go through Next route handlers rather than straight to FastAPI.
+- **Approvals and the audit trail are durable** (#19). The queue is derived on every request, so a decision stored on a recommendation object would vanish with it; decisions live in an `ApprovalStore` (`decision_engine/store.py`) and are replayed onto each rebuild. `settings.audit_store` picks `postgres` or the in-memory fallback — it never probes and falls back silently, because an audit trail that quietly stops being durable is indistinguishable from one that works.
 - **The three artifacts gate themselves.** `assert_executable()` is called inside each generator rather than once upstream, so a new generator cannot quietly skip it. Drafts are deliberately ungated — a draft is what the user reads in order to decide.
 - **`frontend/src/lib/types.ts` mirrors backend response shapes by hand**; nothing enforces they stay in sync (#21). Backend schemas use camelCase aliases (`response_model_by_alias=True`).
 - `frontend/CLAUDE.md` points at `frontend/AGENTS.md`, which `next dev` rewrites — Next.js 16 has breaking changes from training data; read `frontend/node_modules/next/dist/docs/` before writing frontend code.
