@@ -48,13 +48,13 @@ Backend skeleton, frontend skeleton, Postgres schema + migrations, canonical Pyd
 - Backend: MSMED rules engine, TReDS eligibility engine
 - Frontend: build dashboard/investigation/forecast screens against a mocked API response shape (agreed contract, not the real endpoints) so frontend isn't blocked on backend completion
 
-**Phase 3 — Agents + Decision Engine** 🟡 decision engine done, agents blocked on `OQ-02`
+**Phase 3 — Agents + Decision Engine** 🟡 decision engine and both agents done; LLM selection implemented but off pending `OQ-02`
 Receivables Investigator and Recovery Strategy agents need the rules engine and ML outputs available as tool calls (`ADR-002` — the agent never computes them itself). The Decision Engine then combines ML + rules + agent output into the ranked queue with the approval gate.
 
-**Phase 4 — Execution + audit trail** 🟡 audit trail built (in memory); outreach/dossier outstanding
+**Phase 4 — Execution + audit trail** ✅ outreach drafts, mock TReDS, and dossier all ship; the audit trail is durable in Postgres
 Outreach draft generation, mock TReDS submission, dossier generation, and the audit log — all naturally come after the Decision Engine exists to approve/reject actions.
 
-**Phase 5 — Integration + demo hardening** 🟡 frontend wired to the live API; latency check and rehearsal outstanding
+**Phase 5 — Integration + demo hardening** 🟡 frontend wired to the live API behind real auth; NFR-004 measured on the backend (160ms p95 @ 100 invoices, ~19× under budget); rehearsal outstanding
 Wire the frontend to real endpoints (replacing Phase 2's mocked contract), latency check against `NFR-004` (p95 <= 3.0s @ 100 invoices), and demo-script rehearsal against the reference scenario in `prd.md` §37.
 
 ## Mapping to the issue tracker

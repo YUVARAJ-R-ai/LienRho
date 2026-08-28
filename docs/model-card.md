@@ -14,14 +14,16 @@ Given an open invoice, predicts a probability distribution across four delay buc
 
 ## Held-out metrics
 
-Stratified 75/25 split, 6000 samples (4500 train / 1500 test), seed 727.
+Stratified 75/25 split, 6000 samples (4500 train / 1500 test), seed 727. Last verified 2026-08-28.
 
 | Metric | Value | NFR-005 gate |
 |---|---|---|
 | ROC-AUC (macro, one-vs-rest) | **0.834** | ≥ 0.75 ✅ |
-| Expected calibration error | **0.031** | ≤ 0.10 ✅ |
-| Bucket accuracy | 62.3% | — (25% four-class baseline) |
-| Macro precision / recall / F1 | 0.615 / 0.593 / 0.599 | — |
+| Expected calibration error | **0.044** | ≤ 0.10 ✅ |
+| Bucket accuracy | 61.3% | — (25% four-class baseline) |
+| Macro precision / recall / F1 | 0.600 / 0.583 / 0.588 | — |
+
+Training is deterministic at seed 727, so these reproduce exactly. They are copied from `artifacts/metrics.json`, which the training run writes — if this table and that file disagree, the file is right and this table is stale.
 
 Calibration is gated alongside discrimination on purpose. The decision engine ranks the action queue by predicted probability, so a confidently wrong model silently reorders what the user sees first — a failure the user cannot detect from the screen.
 

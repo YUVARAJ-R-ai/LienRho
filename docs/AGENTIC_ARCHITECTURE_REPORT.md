@@ -411,7 +411,7 @@ recommendation = self._parse_recommendation(final["messages"][-1].content)
 ### 8.4 Persistence & Production Hardening
 
 - [ ] **Postgres Persistence** — ActionRecommendation + audit_trail (FR-014)
-- [ ] **Auth Hardening** — Replace `X-Org-Id` header with real auth (NFR-001)
+- [x] **Auth Hardening** — `X-Org-Id` replaced with signed bearer tokens; org comes from the token and auth sits on the `/api` router (NFR-001, #20)
 - [ ] **Connector Credentials** — Secure storage for Tally/Zoho (NFR-002)
 - [ ] **Latency Measurement** — p95 ≤ 3.0s @ 100 invoices (NFR-004)
 - [ ] **Multi-org UI** — If OQ-03 resolves to full UI (currently schema-only)

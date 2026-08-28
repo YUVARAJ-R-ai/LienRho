@@ -12,7 +12,7 @@ Two rules make this work:
 | 0 | "Tally says you're owed ₹42.6L. We say what to do today." | ✅ done | — |
 | 1 | "It reads the conversations too." | ✅ done | — |
 | 2 | "The LLM picks strategy but never touches the numbers." | ✅ done | — |
-| 3 | "And here's the actual dossier — after you approve." | Mon afternoon | Demo CP2 |
+| 3 | "And here's the actual dossier — after you approve." | ✅ done | — |
 | 4 | "Validated against 10 years of real invoices." | Mon 6pm hard stop | Skip entirely |
 | 5 | Freeze + rehearse | Mon night | — |
 
@@ -58,7 +58,9 @@ Two rules make this work:
 
 **Remaining for #13:** bind `TOOL_SCHEMAS` to a LangGraph node, loop until the model stops requesting tools, validate the output, and fall through to `RuleBasedStrategist` on any failure.
 
-## CP3 — Closing the loop
+## CP3 — Closing the loop ✅
+
+**Status:** done (#15, commit 31acafd). Not yet tagged — tag it before the demo, the fallback plan depends on it.
 
 **Delivers:** draft reminder, mock TReDS submission, MSMED dossier (FR-011/012/013, issue #15).
 
@@ -89,4 +91,4 @@ No new features. Tag, then rehearse [`demo-script.md`](demo-script.md) three tim
 
 - **LLM provider and API key (`OQ-02`)** — hard blocker on CP2 and most of CP1. Nothing agent-shaped starts without it.
 - **Outreach delivery (`OQ-01`)** — defaulting to drafted-in-UI. Live WhatsApp/SMTP is out of scope for this window.
-- **Tally connector (#6)** — recommended cut. `ASM-01` flags that Tally's HTTP/XML gateway needs a spike to confirm it's even reachable, and finding out it isn't on Monday would be the worst possible timing. The connector interface exists and `_load_portfolio()` is a one-function swap, which is enough to tell the integration story.
+- **Tally connector (#6)** — *no longer a cut, but still not proven.* `TallyConnector` is built against the documented XML gateway and covered by fixture-based tests, and `POST /api/sync` persists a sync to the canonical store (FR-001). `ASM-01` remains open: no live TallyPrime has answered it. Demo the sync from the synthetic connector, which exercises the identical path — and say "the connector is written and the ingest path is real; we have not had a Tally instance to point it at" rather than implying it has run against one.
