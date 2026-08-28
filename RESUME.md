@@ -17,8 +17,10 @@ git push --tags                          # tags: cp0-pipeline, cp1-investigator,
 # Postgres (only if the container isn't already up)
 cd backend
 docker compose up -d
+uv run alembic upgrade head              # migrations, including auth + sync tables
+uv run python -m app.auth.seed           # demo org + login; idempotent, safe to re-run
 
-# Backend API — detached, low priority, capped to 12 cores
+# Backend API — detached, low priority
 ./run-dev.sh start        # log: /tmp/lienrho-api.log
 ./run-dev.sh status
 ./run-dev.sh stop
@@ -28,13 +30,15 @@ cd frontend
 npm run dev               # http://localhost:3000
 ```
 
-Open **http://localhost:3000**. The backend must be running — the screens read from it.
+Open **http://localhost:3000**. You will land on `/login` — every screen is
+behind auth now (#20). Sign in with **`demo@lienrho.local` / `lienrho-demo`**,
+created by step 2's seed. The backend must be running; the screens read from it.
 
 ## 3. Verify nothing broke
 
 ```bash
 cd backend
-uv run pytest -q                 # expect 206 passed
+uv run pytest -q                 # expect 326 passed (no database needed)
 uv run ruff check .
 
 cd ../frontend
@@ -49,7 +53,7 @@ uv run python -m app.ml_core.train              # CUDA, falls back to CPU
 uv run python -m app.ml_core.train --cpu        # force CPU
 ```
 
-Exits non-zero if the NFR-005 gate fails. Expect ROC-AUC ≈ 0.834, ECE ≈ 0.031.
+Exits non-zero if the NFR-005 gate fails. Expect ROC-AUC ≈ 0.834, ECE ≈ 0.044.
 The artifact is gitignored, so **every teammate must run this once** — the API
 falls back to rule-only recommendations without it.
 
@@ -62,6 +66,7 @@ Short version — the four showcase invoices in story order:
 
 | | Where | Beat |
 |---|---|---|
+| 0 | `/login` | Sign in — do this *before* presenting, not on stage |
 | 1 | `/` | Ranked queue, ₹42.6L across 30 invoices |
 | 2 | `/invoice/INV-1023` | Promise found in WhatsApp, date extracted → reminder |
 | 3 | `/invoice/INV-1042` | Same words, worthless promise → escalates; `TOOL` trace shows `calculate_interest() → 5840.07` |
@@ -86,13 +91,27 @@ deterministic boundary genuinely holds — but the *selection* is rule-based rig
 now, not model-driven. "Here's the boundary the agent works through" is true;
 "an LLM chose this" is not, yet.
 
-**Next up — CP3** (`docs/demo-checkpoints.md`): draft reminder, mock TReDS
-submission, MSMED dossier (#15). Fully deterministic, no API key needed, and it
-pays off the approval gate that's already built.
+**CP3 is done** — draft reminder, mock TReDS submission, and MSMED dossier all
+ship (#15). Issues #13, #15, #19, #20 and #21 are closed; #6 is built but stays
+open until a live TallyPrime has answered it (`ASM-01`).
+
+**What is actually left:** `ASM-01` (the Tally spike), `OQ-02` (pick a provider
+and flip `llm_enabled`), NFR-008's informal user test, and the frontend has no
+tests. See [`implementation-status.md`](docs/implementation-status.md).
 
 ## Gotchas
 
 - `git push --tags` is separate from `git push`. Tags are the fallback plan.
-- The model artifact is gitignored — teammates need step 4 once.
-- Auth is a stubbed `X-Org-Id` header. Don't expose this beyond localhost (#20).
-- Approvals are in-memory and reset when the API restarts (#19).
+- The model artifact is gitignored — teammates need step 4 once. Without it the
+  API serves rule-only recommendations with **empty** delay predictions rather
+  than failing, so a forgotten step 4 looks like a working app with a dead ML
+  layer.
+- Every `/api/*` route needs a bearer token (#20). Seed a login in step 2; the
+  frontend keeps it in an httpOnly cookie, so signing in through the UI is the
+  only setup needed.
+- Approvals and the audit trail are durable now (#19). If `/health` reports
+  `auditStore.durable: false`, the API could not reach Postgres and is serving
+  from memory — decisions will vanish on restart.
+- `uv run pytest` needs no database, but `test_sync.py` and the Postgres half of
+  `test_approval_store.py` skip without one. A green run is not proof those
+  paths work.

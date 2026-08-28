@@ -1,0 +1,1275 @@
+{
+  "components": {
+    "schemas": {
+      "ActionQueueItemOut": {
+        "properties": {
+          "approvalState": {
+            "title": "Approvalstate",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice": {
+            "$ref": "#/components/schemas/InvoiceOut"
+          },
+          "prediction": {
+            "$ref": "#/components/schemas/DelayPredictionOut"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "recommendedAction": {
+            "title": "Recommendedaction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "invoice",
+          "priority",
+          "recommendedAction",
+          "reason",
+          "approvalState",
+          "prediction"
+        ],
+        "title": "ActionQueueItemOut",
+        "type": "object"
+      },
+      "AgentFindingsOut": {
+        "properties": {
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "disputeDetected": {
+            "title": "Disputedetected",
+            "type": "boolean"
+          },
+          "evidence": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "paymentPromise": {
+            "title": "Paymentpromise",
+            "type": "boolean"
+          },
+          "promisedDate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promiseddate"
+          }
+        },
+        "required": [
+          "paymentPromise",
+          "promisedDate",
+          "disputeDetected",
+          "confidence",
+          "evidence"
+        ],
+        "title": "AgentFindingsOut",
+        "type": "object"
+      },
+      "ApprovalResultOut": {
+        "description": "The outcome of a human decision, with whatever it produced (FR-010).",
+        "properties": {
+          "approvalState": {
+            "title": "Approvalstate",
+            "type": "string"
+          },
+          "artifact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "auditTrail": {
+            "items": {
+              "$ref": "#/components/schemas/AuditEntryOut"
+            },
+            "title": "Audittrail",
+            "type": "array"
+          },
+          "invoiceId": {
+            "title": "Invoiceid",
+            "type": "string"
+          },
+          "recommendedAction": {
+            "title": "Recommendedaction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoiceId",
+          "approvalState",
+          "recommendedAction",
+          "auditTrail"
+        ],
+        "title": "ApprovalResultOut",
+        "type": "object"
+      },
+      "ArtifactOut": {
+        "description": "A generated execution artifact (FR-011, FR-012, FR-013).\n\nOne shape for all three: the screen renders `contentMarkdown` and does not\nneed to know whether it is holding a reminder, a financing submission, or a\nlegal filing. `payload` carries the machine-readable TReDS body, which is\nthe only one of the three that a downstream system would ever consume.",
+        "properties": {
+          "contentMarkdown": {
+            "title": "Contentmarkdown",
+            "type": "string"
+          },
+          "editable": {
+            "default": false,
+            "title": "Editable",
+            "type": "boolean"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "contentMarkdown"
+        ],
+        "title": "ArtifactOut",
+        "type": "object"
+      },
+      "AuditEntryOut": {
+        "properties": {
+          "decidedBy": {
+            "title": "Decidedby",
+            "type": "string"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "what": {
+            "title": "What",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timestamp",
+          "decidedBy",
+          "what",
+          "why"
+        ],
+        "title": "AuditEntryOut",
+        "type": "object"
+      },
+      "CashForecastOut": {
+        "properties": {
+          "cashThreshold": {
+            "title": "Cashthreshold",
+            "type": "number"
+          },
+          "contributingInvoices": {
+            "items": {
+              "$ref": "#/components/schemas/ContributingInvoiceOut"
+            },
+            "title": "Contributinginvoices",
+            "type": "array"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/ForecastPointOut"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "shortfallAmount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shortfallamount"
+          },
+          "shortfallDate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shortfalldate"
+          }
+        },
+        "required": [
+          "points",
+          "cashThreshold",
+          "shortfallDate",
+          "shortfallAmount",
+          "contributingInvoices"
+        ],
+        "title": "CashForecastOut",
+        "type": "object"
+      },
+      "ContributingInvoiceOut": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "number"
+          },
+          "contribution": {
+            "title": "Contribution",
+            "type": "number"
+          },
+          "customerName": {
+            "title": "Customername",
+            "type": "string"
+          },
+          "invoiceId": {
+            "title": "Invoiceid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoiceId",
+          "customerName",
+          "amount",
+          "contribution"
+        ],
+        "title": "ContributingInvoiceOut",
+        "type": "object"
+      },
+      "DelayPredictionOut": {
+        "properties": {
+          "bucket_0_15": {
+            "title": "Bucket 0 15",
+            "type": "number"
+          },
+          "bucket_16_30": {
+            "title": "Bucket 16 30",
+            "type": "number"
+          },
+          "bucket_31_45": {
+            "title": "Bucket 31 45",
+            "type": "number"
+          },
+          "bucket_over_45": {
+            "title": "Bucket Over 45",
+            "type": "number"
+          }
+        },
+        "required": [
+          "bucket_0_15",
+          "bucket_16_30",
+          "bucket_31_45",
+          "bucket_over_45"
+        ],
+        "title": "DelayPredictionOut",
+        "type": "object"
+      },
+      "DraftChannel": {
+        "enum": [
+          "EMAIL",
+          "WHATSAPP"
+        ],
+        "title": "DraftChannel",
+        "type": "string"
+      },
+      "ForecastPointOut": {
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "projectedCash": {
+            "title": "Projectedcash",
+            "type": "number"
+          }
+        },
+        "required": [
+          "date",
+          "projectedCash"
+        ],
+        "title": "ForecastPointOut",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "InvestigationOut": {
+        "properties": {
+          "approvalState": {
+            "title": "Approvalstate",
+            "type": "string"
+          },
+          "auditTrail": {
+            "items": {
+              "$ref": "#/components/schemas/AuditEntryOut"
+            },
+            "title": "Audittrail",
+            "type": "array"
+          },
+          "factors": {
+            "items": {
+              "$ref": "#/components/schemas/PredictionFactorOut"
+            },
+            "title": "Factors",
+            "type": "array"
+          },
+          "findings": {
+            "$ref": "#/components/schemas/AgentFindingsOut"
+          },
+          "invoice": {
+            "$ref": "#/components/schemas/InvoiceOut"
+          },
+          "prediction": {
+            "$ref": "#/components/schemas/DelayPredictionOut"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "recommendedAction": {
+            "title": "Recommendedaction",
+            "type": "string"
+          },
+          "rules": {
+            "$ref": "#/components/schemas/RuleFlagsOut"
+          }
+        },
+        "required": [
+          "invoice",
+          "prediction",
+          "factors",
+          "rules",
+          "findings",
+          "recommendedAction",
+          "reason",
+          "approvalState",
+          "auditTrail"
+        ],
+        "title": "InvestigationOut",
+        "type": "object"
+      },
+      "InvoiceOut": {
+        "properties": {
+          "customerId": {
+            "title": "Customerid",
+            "type": "string"
+          },
+          "customerName": {
+            "title": "Customername",
+            "type": "string"
+          },
+          "daysOverdue": {
+            "title": "Daysoverdue",
+            "type": "integer"
+          },
+          "dueDate": {
+            "title": "Duedate",
+            "type": "string"
+          },
+          "invoiceAmount": {
+            "title": "Invoiceamount",
+            "type": "number"
+          },
+          "invoiceDate": {
+            "title": "Invoicedate",
+            "type": "string"
+          },
+          "invoiceId": {
+            "title": "Invoiceid",
+            "type": "string"
+          },
+          "paymentStatus": {
+            "title": "Paymentstatus",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoiceId",
+          "customerId",
+          "customerName",
+          "invoiceAmount",
+          "invoiceDate",
+          "dueDate",
+          "paymentStatus",
+          "daysOverdue"
+        ],
+        "title": "InvoiceOut",
+        "type": "object"
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "minLength": 1,
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "MeResponse": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "org_id": {
+            "title": "Org Id",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "org_id",
+          "email"
+        ],
+        "title": "MeResponse",
+        "type": "object"
+      },
+      "PortfolioSummaryOut": {
+        "properties": {
+          "atRisk": {
+            "title": "Atrisk",
+            "type": "number"
+          },
+          "openInvoices": {
+            "title": "Openinvoices",
+            "type": "integer"
+          },
+          "shortfallAmount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shortfallamount"
+          },
+          "shortfallDate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shortfalldate"
+          },
+          "totalReceivables": {
+            "title": "Totalreceivables",
+            "type": "number"
+          }
+        },
+        "required": [
+          "totalReceivables",
+          "atRisk",
+          "openInvoices",
+          "shortfallAmount",
+          "shortfallDate"
+        ],
+        "title": "PortfolioSummaryOut",
+        "type": "object"
+      },
+      "PredictionFactorOut": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "detail",
+          "direction"
+        ],
+        "title": "PredictionFactorOut",
+        "type": "object"
+      },
+      "RuleFlagsOut": {
+        "properties": {
+          "statutoryFlag": {
+            "title": "Statutoryflag",
+            "type": "boolean"
+          },
+          "statutoryInterest": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statutoryinterest"
+          },
+          "tredsEligible": {
+            "title": "Tredseligible",
+            "type": "boolean"
+          },
+          "tredsIneligibleReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tredsineligiblereason"
+          }
+        },
+        "required": [
+          "statutoryFlag",
+          "statutoryInterest",
+          "tredsEligible",
+          "tredsIneligibleReason"
+        ],
+        "title": "RuleFlagsOut",
+        "type": "object"
+      },
+      "SyncResultOut": {
+        "description": "One connector sync, successful or not (FR-001 AC-2).",
+        "properties": {
+          "customersSynced": {
+            "default": 0,
+            "title": "Customerssynced",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finishedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finishedat"
+          },
+          "invoicesSynced": {
+            "default": 0,
+            "title": "Invoicessynced",
+            "type": "integer"
+          },
+          "paymentsSynced": {
+            "default": 0,
+            "title": "Paymentssynced",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "startedAt": {
+            "title": "Startedat",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "status",
+          "startedAt"
+        ],
+        "title": "SyncResultOut",
+        "type": "object"
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "expires_in": {
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "org_id": {
+            "title": "Org Id",
+            "type": "string"
+          },
+          "token_type": {
+            "default": "bearer",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token",
+          "expires_in",
+          "org_id",
+          "email",
+          "display_name"
+        ],
+        "title": "TokenResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "LIENRHO API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/action-queue": {
+      "get": {
+        "description": "The prioritized daily action queue (FR-009).",
+        "operationId": "action_queue_api_action_queue_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ActionQueueItemOut"
+                  },
+                  "title": "Response Action Queue Api Action Queue Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Missing or invalid access token"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Action Queue",
+        "tags": [
+          "lienrho"
+        ]
+      }
+    },
+    "/api/actions/{invoice_id}/approve": {
+      "post": {
+        "description": "Approve a recommendation and generate what it produces (FR-010, FR-012, FR-013).\n\n`actor` comes from the verified token, never from the request. FR-014 asks\nwho decided; a caller-supplied name would let anyone sign the audit trail\nwith somebody else's identity, which is the one thing that record exists to\nprevent.",
+        "operationId": "approve_action_api_actions__invoice_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "title": "Invoice Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalResultOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Missing or invalid access token"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Action",
+        "tags": [
+          "lienrho"
+        ]
+      }
+    },
+    "/api/actions/{invoice_id}/reject": {
+      "post": {
+        "description": "Reject a recommendation. Invoice state is left unchanged (FR-010 AC-2).",
+        "operationId": "reject_action_api_actions__invoice_id__reject_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "title": "Invoice Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalResultOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Missing or invalid access token"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reject Action",
+        "tags": [
+          "lienrho"
+        ]
+      }
+    },
+    "/api/forecast": {
+      "get": {
+        "description": "30-day rolling cash forecast with shortfall contributors (FR-004, FR-015).",
+        "operationId": "cash_forecast_api_forecast_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CashForecastOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Missing or invalid access token"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cash Forecast",
+        "tags": [
+          "lienrho"
+        ]
+      }
+    },
+    "/api/invoice/{invoice_id}": {
+      "get": {
+        "description": "Full investigation detail for one invoice (FR-003, FR-007, FR-014).",
+        "operationId": "investigation_api_invoice__invoice_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "title": "Invoice Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Missing or invalid access token"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Investigation",
+        "tags": [
+          "lienrho"
+        ]
+      }
+    },
+    "/api/invoice/{invoice_id}/artifact": {
+      "get": {
+        "description": "Re-fetch the artifact an approved action produced (FR-011/012/013).\n\nWithout this, an approved dossier would exist only in the browser tab that\napproved it and vanish on reload \u2014 which is exactly the wrong property for a\ndocument someone intends to file.\n\nStill gated: `build_artifact` raises `ApprovalRequired` for anything not\napproved, so this is a way to re-read a decision, not to bypass one.",
+        "operationId": "invoice_artifact_api_invoice__invoice_id__artifact_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "title": "Invoice Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Missing or invalid access token"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Invoice Artifact",
+        "tags": [
+          "lienrho"
+        ]
+      }
+    },
+    "/api/invoice/{invoice_id}/draft": {
+      "get": {
+        "description": "Draft a reminder for one invoice (FR-011).\n\nNot gated on approval \u2014 the draft is what the user reads in order to decide.\nSending it is their own action in their own client (OQ-01).",
+        "operationId": "invoice_draft_api_invoice__invoice_id__draft_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "title": "Invoice Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "channel",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/DraftChannel",
+              "default": "EMAIL"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Missing or invalid access token"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Invoice Draft",
+        "tags": [
+          "lienrho"
+        ]
+      }
+    },
+    "/api/summary": {
+      "get": {
+        "description": "Headline figures for the dashboard.",
+        "operationId": "portfolio_summary_api_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioSummaryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Missing or invalid access token"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Portfolio Summary",
+        "tags": [
+          "lienrho"
+        ]
+      }
+    },
+    "/api/sync": {
+      "get": {
+        "description": "The most recent sync for this org, successful or not.\n\nNull when none has ever run. Without this, \"the queue is empty\" and \"we\nhave never managed to read the book\" are indistinguishable from the\noutside, and the second is an outage reading as good news.",
+        "operationId": "sync_status_api_sync_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SyncResultOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Sync Status Api Sync Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Missing or invalid access token"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sync Status",
+        "tags": [
+          "lienrho"
+        ]
+      },
+      "post": {
+        "description": "Pull this org's book from the configured connector into the canonical\nstore (FR-001, on-demand half).\n\nReturns 200 with `status: \"FAILED\"` rather than a 5xx when the connector is\nunreachable. The request itself succeeded \u2014 the sync is what failed, and\nthat outcome is a recorded fact the caller needs to read, not an error to\nbe swallowed by a generic handler. The previous portfolio is untouched\n(AC-2).",
+        "operationId": "run_sync_api_sync_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncResultOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Missing or invalid access token"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Run Sync",
+        "tags": [
+          "lienrho"
+        ]
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "description": "Exchange credentials for an access token carrying the org.\n\nOne message for both \"no such user\" and \"wrong password\": distinguishing\nthem tells an attacker which emails are registered.",
+        "operationId": "login_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "description": "Who the current token says you are. Used by the frontend to gate screens.",
+        "operationId": "me_auth_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Me",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Health Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  }
+}

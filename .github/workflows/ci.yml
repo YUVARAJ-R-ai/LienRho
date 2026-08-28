@@ -11,6 +11,24 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    # The suite passes with no database — the in-memory approval store is the
+    # fallback. Postgres is here so tests/test_approval_store.py runs its
+    # SqlApprovalStore parameterisation instead of skipping it, which is what
+    # keeps FR-014 durability verified rather than assumed (#19).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: lienrho
+          POSTGRES_PASSWORD: lienrho
+          POSTGRES_DB: lienrho
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lienrho"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -18,7 +36,38 @@ jobs:
           enable-cache: true
       - run: uv sync
       - run: uv run ruff check .
+      - run: uv run alembic upgrade head
       - run: uv run pytest -q
+
+  # The frontend/backend contract (#21). types.ts is derived from the API's own
+  # OpenAPI schema, so the only way it can drift is if someone changes a
+  # response model without regenerating. Regenerating here and diffing turns
+  # that into a failed build instead of an `undefined` on a screen.
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: uv sync
+        working-directory: backend
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run generate:types
+        working-directory: frontend
+      - name: Fail if the committed contract is stale
+        run: |
+          if ! git diff --exit-code -- backend/openapi.json frontend/src/lib/api-types.ts; then
+            echo "::error::The API contract changed but the generated files were not committed."
+            echo "Run 'npm run generate:types' in frontend/ and commit the result."
+            exit 1
+          fi
 
   frontend:
     runs-on: ubuntu-latest

@@ -37,11 +37,12 @@ cd backend
 docker compose up -d                        # Postgres on :5432
 uv sync
 uv run alembic upgrade head
+uv run python -m app.auth.seed              # demo org + login (every /api route needs a token)
 uv run python -m app.ml_core.train          # trains the delay model (CUDA, CPU fallback)
 uv run uvicorn app.main:app --reload        # :8000
 ./run-dev.sh start|stop|status              # or run it detached, capped to 12 cores
 
-uv run pytest -q                            # 206 tests
+uv run pytest -q                            # 326 tests; no database needed
 uv run ruff check . --fix
 
 # Frontend (needs the backend running)
@@ -65,11 +66,12 @@ Check it for label leakage first (`ADR-004`). A feature must be computable *befo
 
 ## Known gaps worth knowing before you build on them
 
-- Auth is stubbed: `backend/app/db/scoping.py` trusts an unverified `X-Org-Id` header, so `NFR-001` does not actually hold yet (#20).
+- **Adding an npm dependency from macOS breaks `npm ci` on Linux.** `npm install` on darwin prunes optional dependencies that only resolve on Linux (`@emnapi/core`, `@emnapi/runtime`, reached through the wasm fallback for the Tailwind/lightningcss native binary). The lockfile it writes then fails `npm ci` in CI with "Missing: … from lock file", while every local check passes because `node_modules` is already populated. `--os=linux --cpu=x64` does not fix it on npm 11. If you add a frontend dependency, verify with `npm ci` in a clean copy of just `package.json` + `package-lock.json` before pushing. This is why the OpenAPI type generator is pinned as `npx -y openapi-typescript@7.13.0` in the `generate:types` script rather than being a devDependency — it runs twice, so it does not need to be in the dependency tree, and keeping it out leaves the lockfile untouched.
 - On macOS, `xgboost` needs `brew install libomp` — it is not a Python dependency, and without it the whole test suite errors at collection.
-- The audit trail is in memory and resets on restart (#19).
-- `frontend/src/lib/types.ts` mirrors backend response shapes by hand; nothing enforces it (#21).
-- The action queue reads the synthetic portfolio. Swapping to a live sync means changing `_load_portfolio()` in `decision_engine/service.py` and nothing else (#6).
+- `uv run pytest` needs no database, but `test_sync.py` and the Postgres half of `test_approval_store.py` **skip** without one. A green local run is not proof those paths work; CI runs them against a real Postgres.
+- `frontend/src/lib/types.ts` is generated from `backend/openapi.json`. After changing a response model, run `npm run generate:types` in `frontend/` and commit the result — CI diffs it and fails if stale (#21).
+- The Tally connector is written to the documented XML gateway but has never run against a live instance (`ASM-01`, #6). Its parser accepts several documented spellings per field for exactly that reason.
+- The agents run deterministically. `llm_enabled` is off pending `OQ-02`; the LLM implementations exist and fall back to the rule-based ones on any failure (#13).
 
 Full state: [`docs/implementation-status.md`](docs/implementation-status.md).
 

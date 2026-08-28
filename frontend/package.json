@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "generate:types": "cd ../backend && uv run python scripts/dump_openapi.py && cd ../frontend && npx -y openapi-typescript@7.13.0 ../backend/openapi.json -o src/lib/api-types.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

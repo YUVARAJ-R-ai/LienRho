@@ -227,28 +227,31 @@ These affect design and are not yet resolved (see `docs/inception.md` §8 for de
 | Decision engine + approval gate | ✅ Done |
 | API endpoints | ✅ Done |
 | Frontend: 4 screens, wired to live API | ✅ Done |
-| Audit trail (in-memory) | ✅ Done |
+| Audit trail (durable, Postgres) | ✅ Done |
 | Receivables Investigator + Recovery Strategy agents | ✅ Done (deterministic) |
 | Agent tool boundary with recorded calls | ✅ Done |
 | Outreach drafts, mock TReDS, MSMED dossier | ✅ Done |
-| Server-side approval gate | ✅ Done (in-memory) |
-| LLM-driven agent selection | ⬜ Blocked on `OQ-02` |
-| Tally connector | ⬜ Not started |
-| Approval + audit trail persistence to Postgres | ⬜ Not started |
+| Server-side approval gate | ✅ Done (survives restart) |
+| Real org authentication (JWT, org from token) | ✅ Done |
+| Approval + audit trail persistence to Postgres | ✅ Done |
+| Connector sync → canonical store, on-demand + scheduled | ✅ Done |
+| Frontend/backend contract generated from OpenAPI | ✅ Done |
+| Tally connector | 🟡 Built and fixture-tested; unverified against a live instance (`ASM-01`) |
+| LLM-driven agent selection | ⬜ Implemented, off — blocked on `OQ-02` |
 
 The pipeline runs end to end: synthetic portfolio → XGBoost predictions → agent investigation and strategy over a recorded tool boundary → deterministic MSMED/TReDS checks → probabilistic cash forecast → ranked action queue → human approval → generated reminder, mock TReDS submission, or MSMED dossier, with every recommendation carrying its ML/Rules/Tool/Agent audit trail.
 
-**Model quality (held-out, NFR-005 gate: PASS)** — ROC-AUC 0.834, expected calibration error 0.031, bucket accuracy 62.3% against a 25% four-class baseline. That figure is deliberately not near-perfect: the generator draws delays from a multi-factor latent process and the customer's average delay is computed from observed history, so the model has to learn a real relationship rather than recover a constant it was handed.
+**Model quality (held-out, NFR-005 gate: PASS)** — ROC-AUC 0.834, expected calibration error 0.044, bucket accuracy 61.3% against a 25% four-class baseline. That figure is deliberately not near-perfect: the generator draws delays from a multi-factor latent process and the customer's average delay is computed from observed history, so the model has to learn a real relationship rather than recover a constant it was handed.
 
 Build order and phase dependencies: [`docs/framework-plan.md`](docs/framework-plan.md).
 
-**Two things to know before building on this:**
+**What to know before building on this:**
 
-- Auth is stubbed. `backend/app/db/scoping.py` trusts an unverified `X-Org-Id` header, so NFR-001 does not hold yet — the scoping helper is right, the identity feeding it isn't. Don't expose this beyond local dev (#20).
-- The frontend's `src/lib/types.ts` mirrors the backend response shapes by hand. Nothing enforces they stay in sync (#21).
-- The action queue reads the synthetic portfolio, not a live Tally sync. Swapping it means changing `_load_portfolio()` in `backend/app/decision_engine/service.py` and nothing else (#6).
-- The agents select deterministically. The tool boundary and its recorded trace are real and are what an LLM will use unchanged, but no model is choosing yet — say it that way (`OQ-02`, #13).
-- Approvals are in-memory and reset on restart; persistence is outstanding (#19).
+- **The agents select deterministically.** `LLMInvestigator` and `LLMStrategist` are implemented and tested, but `llm_enabled` is off because `OQ-02` was never resolved, so `RuleBasedInvestigator`/`RuleBasedStrategist` are what run. The tool boundary and its recorded trace are real and are what an LLM will use unchanged — but no model is choosing yet, and it should be described that way (#13).
+- **The Tally connector has never met a Tally.** It is written to the documented XML gateway and covered by fixture-based tests; `ASM-01` — whether that gateway is reachable at all — is still open. Treat the first run against a real instance as the spike (#6).
+- **The default portfolio is synthetic** (`ASM-02`). `settings.portfolio_source` switches between the generated demo set, a live connector read, and the canonical store populated by `POST /api/sync`.
+- **The model artifact is gitignored.** Without it the API serves rule-only recommendations with empty delay predictions rather than failing — a working-looking app with a dead ML layer. Run `uv run python -m app.ml_core.train` once.
+- **Everything is behind auth.** Seed a login with `uv run python -m app.auth.seed` before the UI will show you anything.
 
 ## License
 

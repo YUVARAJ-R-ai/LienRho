@@ -4,31 +4,37 @@ This is the seam where connectors, ML, rules, and the decision engine meet.
 It currently reads the synthetic demo dataset rather than a live Tally sync —
 swapping in the connector means changing `_load_portfolio` and nothing else.
 
-Recommendations are held in memory for the demo. Persisting them (and their
-audit trails) to Postgres is FR-014's remaining backend work.
+The queue itself is derived on every request. Human decisions and their audit
+trails are not — they live in an `ApprovalStore` (see `store.py`) and are
+replayed onto each rebuild, so they survive an API restart (FR-014, NFR-007).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from functools import lru_cache
 
 from app.agents.investigator import get_investigator
 from app.agents.strategy import StrategyContext, get_strategist
+from app.config import settings
 from app.data.communications import build_threads
-from app.data.synthetic import AS_OF, DEMO_SUPPLIER, generate_dataset
+from app.data.synthetic import (
+    AS_OF,
+    DEFAULT_ORG_ID,
+    DEMO_SUPPLIER,
+    GeneratedDataset,
+    generate_dataset,
+)
 from app.decision_engine.engine import (
     ActionRecommendation,
-    ApprovalState,
-    AuditEntry,
     RecommendedAction,
     approve,
     build_recommendation,
     rank_queue,
     reject,
 )
+from app.decision_engine.store import ApprovalRecord, get_approval_store
 from app.ml_core.features import build_customer_stats, extract_features
 from app.ml_core.forecast import build_forecast
 from app.ml_core.model import DEFAULT_MODEL_PATH, DelayModel
@@ -62,35 +68,20 @@ MATERIAL_SHORTFALL_RISK = 0.5
 # --------------------------------------------------------------- approvals
 
 
-@dataclass
-class _ApprovalRecord:
-    """One invoice's human decisions, replayed onto the queue as it rebuilds.
-
-    `build_action_queue` recomputes every recommendation from scratch on each
-    request, so an approval recorded on a recommendation object would vanish
-    with it. Keeping the decision here instead means the queue stays derived
-    while the human part of it persists across calls.
-
-    In memory only — it resets when the API restarts. Durable storage is #19's
-    work, and this deliberately mirrors what a row would hold so that change is
-    a swap rather than a redesign.
-    """
-
-    state: ApprovalState
-    entries: list[AuditEntry] = field(default_factory=list)
-
-
-_APPROVALS: dict[str, _ApprovalRecord] = {}
-
-
-def reset_approvals() -> None:
+def reset_approvals(org_id: str | None = None) -> None:
     """Forget every recorded decision. For tests and demo resets."""
-    _APPROVALS.clear()
+    get_approval_store().clear(org_id)
 
 
-def _apply_approval(recommendation: ActionRecommendation) -> ActionRecommendation:
-    """Replay any recorded decision onto a freshly built recommendation."""
-    record = _APPROVALS.get(recommendation.invoice_id)
+def _apply_approval(
+    recommendation: ActionRecommendation, *, org_id: str
+) -> ActionRecommendation:
+    """Replay any recorded decision onto a freshly built recommendation.
+
+    The queue is derived on every request, so this is what keeps the *human*
+    part of it — the decision and its audit trail — from being recomputed away.
+    """
+    record = get_approval_store().get(org_id, recommendation.invoice_id)
     if record is None:
         return recommendation
     recommendation.approval_state = record.state
@@ -99,7 +90,12 @@ def _apply_approval(recommendation: ActionRecommendation) -> ActionRecommendatio
 
 
 def decide_on_action(
-    invoice_id: str, *, approved: bool, actor: str, as_of: date = AS_OF
+    invoice_id: str,
+    *,
+    approved: bool,
+    actor: str,
+    as_of: date = AS_OF,
+    org_id: str = DEFAULT_ORG_ID,
 ) -> ActionRecommendation | None:
     """Record an explicit human approval or rejection (FR-010, BR-APPROVAL).
 
@@ -108,14 +104,22 @@ def decide_on_action(
     the audit trail (FR-010 AC-2).
     """
     recommendation = next(
-        (r for r in build_action_queue(as_of=as_of) if r.invoice_id == invoice_id), None
+        (
+            r
+            for r in build_action_queue(as_of=as_of, org_id=org_id)
+            if r.invoice_id == invoice_id
+        ),
+        None,
     )
     if recommendation is None:
         return None
 
+    store = get_approval_store()
+    existing = store.get(org_id, invoice_id)
+
     # Everything already on the trail was either derived this call or replayed
     # from earlier decisions; only what the decision below appends is new.
-    prior = list(_APPROVALS[invoice_id].entries) if invoice_id in _APPROVALS else []
+    prior = list(existing.entries) if existing else []
     boundary = len(recommendation.audit_trail)
 
     if approved:
@@ -125,9 +129,15 @@ def decide_on_action(
 
     # Keep the full sequence, not just the latest: an approve-then-reject is two
     # facts about who decided what, and FR-014 asks for both.
-    _APPROVALS[invoice_id] = _ApprovalRecord(
-        state=recommendation.approval_state,
-        entries=prior + recommendation.audit_trail[boundary:],
+    store.record(
+        org_id,
+        invoice_id,
+        ApprovalRecord(
+            state=recommendation.approval_state,
+            entries=prior + recommendation.audit_trail[boundary:],
+            recommended_action=recommendation.recommended_action,
+            actor=actor,
+        ),
     )
     return recommendation
 
@@ -148,17 +158,64 @@ def _load_model() -> DelayModel | None:
         return None
 
 
-def _load_portfolio():
+def _load_portfolio(org_id: str = DEFAULT_ORG_ID):
     """Current open invoices, customers, and payment history.
 
-    Replace with a connector sync (FR-001) when the Tally adapter lands.
+    The single swap point between the demo dataset and a live accounting sync
+    (FR-001). Everything downstream sees canonical types either way, so nothing
+    else in the pipeline changes when this switches.
+
+    `settings.portfolio_source` chooses: `synthetic` (default) generates the
+    demo portfolio, `tally` reads a live company on every request, `database`
+    reads the canonical store that `POST /api/sync` populates.
+
+    Defaults to synthetic: `TallyConnector` is implemented and tested against
+    recorded fixtures, but ASM-01 — whether Tally's gateway is actually
+    reachable this way — has never been checked against a live instance.
     """
-    return generate_dataset()
+    if settings.portfolio_source == "database":
+        return _load_from_database(org_id)
+    if settings.portfolio_source == "tally":
+        return _load_from_connector(org_id, "tally")
+    return generate_dataset(org_id=org_id)
 
 
-def build_action_queue(as_of: date = AS_OF) -> list[ActionRecommendation]:
+def _load_from_database(org_id: str) -> GeneratedDataset:
+    """Read the canonical store, populated by a connector sync (FR-001).
+
+    The shape FR-001 actually describes: the connector writes to the store on
+    its own schedule, and the queue reads the store. It decouples serving a
+    request from an accounting system being up.
+    """
+    from app.db.session import SessionLocal
+    from app.sync import load_portfolio
+
+    with SessionLocal() as session:
+        return load_portfolio(session, org_id=org_id)
+
+
+def _load_from_connector(org_id: str, source: str) -> GeneratedDataset:
+    """Read straight through a connector, without persisting.
+
+    Returns the same container the synthetic path does rather than a new type —
+    the point of the canonical layer is that the caller cannot tell which
+    source it got.
+    """
+    from app.connectors import get_connector
+
+    connector = get_connector(source)
+    return GeneratedDataset(
+        customers=connector.get_customers(org_id),
+        invoices=connector.get_invoices(org_id),
+        payments=connector.get_payments(org_id),
+    )
+
+
+def build_action_queue(
+    as_of: date = AS_OF, org_id: str = DEFAULT_ORG_ID
+) -> list[ActionRecommendation]:
     """Score, evaluate, and rank every open invoice into the daily queue."""
-    data = _load_portfolio()
+    data = _load_portfolio(org_id)
     model = _load_model()
     stats = build_customer_stats(data.payments)
     customers = {c.customer_id: c for c in data.customers}
@@ -179,7 +236,7 @@ def build_action_queue(as_of: date = AS_OF) -> list[ActionRecommendation]:
         predictions[invoice.invoice_id] = prediction.probabilities
         probability_over_45[invoice.invoice_id] = prediction.probability_over_45_days
 
-    forecast = get_cash_forecast(as_of=as_of)
+    forecast = get_cash_forecast(as_of=as_of, org_id=org_id)
     # Only *material* contributors escalate an invoice to Critical. Every open
     # invoice contributes some probability mass to a shortfall, so ranking alone
     # would mark low-risk invoices critical purely for being large.
@@ -282,14 +339,14 @@ def build_action_queue(as_of: date = AS_OF) -> list[ActionRecommendation]:
             )
         )
 
-    return rank_queue([_apply_approval(r) for r in recommendations])
+    return rank_queue([_apply_approval(r, org_id=org_id) for r in recommendations])
 
 
-def get_cash_forecast(as_of: date = AS_OF):
+def get_cash_forecast(as_of: date = AS_OF, org_id: str = DEFAULT_ORG_ID):
     """30-day forecast over the current portfolio (FR-004, FR-015)."""
     from app.canonical.models import BusinessFinancialState
 
-    data = _load_portfolio()
+    data = _load_portfolio(org_id)
     model = _load_model()
     stats = build_customer_stats(data.payments)
     customers = {c.customer_id: c for c in data.customers}
@@ -305,7 +362,7 @@ def get_cash_forecast(as_of: date = AS_OF):
             predictions[invoice.invoice_id] = model.predict(features).probabilities
 
     state = BusinessFinancialState(
-        org_id="ORG-DEMO",
+        org_id=org_id,
         as_of_date=as_of,
         current_cash=DEMO_STATE_CASH,
         expected_inflows=Decimal(0),
@@ -323,15 +380,22 @@ def get_cash_forecast(as_of: date = AS_OF):
     )
 
 
-def get_investigation(invoice_id: str, as_of: date = AS_OF) -> dict | None:
+def get_investigation(
+    invoice_id: str, as_of: date = AS_OF, org_id: str = DEFAULT_ORG_ID
+) -> dict | None:
     """Full detail for one invoice (FR-003, FR-007, FR-014)."""
-    data = _load_portfolio()
+    data = _load_portfolio(org_id)
     invoice = next((i for i in data.invoices if i.invoice_id == invoice_id), None)
     if invoice is None:
         return None
 
     recommendation = next(
-        (r for r in build_action_queue(as_of=as_of) if r.invoice_id == invoice_id), None
+        (
+            r
+            for r in build_action_queue(as_of=as_of, org_id=org_id)
+            if r.invoice_id == invoice_id
+        ),
+        None,
     )
 
     model = _load_model()
@@ -413,9 +477,9 @@ def _summarize_findings(finding) -> str | None:
     return "No payment promise or dispute found in correspondence"
 
 
-def get_findings(invoice_id: str, as_of: date = AS_OF):
+def get_findings(invoice_id: str, as_of: date = AS_OF, org_id: str = DEFAULT_ORG_ID):
     """Investigator findings for one invoice, for the investigation screen."""
-    data = _load_portfolio()
+    data = _load_portfolio(org_id)
     threads = build_threads(data.invoices)
     thread = threads.get(invoice_id)
     if thread is None:
@@ -431,6 +495,7 @@ def build_draft(
     *,
     channel: DraftChannel = DraftChannel.EMAIL,
     as_of: date = AS_OF,
+    org_id: str = DEFAULT_ORG_ID,
 ) -> ReminderDraft | None:
     """Draft a reminder for one invoice (FR-011).
 
@@ -439,7 +504,7 @@ def build_draft(
     whole flow exists for. The approval gate sits in front of sending, and
     sending is the user's own action (OQ-01 → drafted-in-UI).
     """
-    data = _load_portfolio()
+    data = _load_portfolio(org_id)
     invoice = next((i for i in data.invoices if i.invoice_id == invoice_id), None)
     if invoice is None:
         return None
@@ -456,14 +521,17 @@ def build_draft(
             due_date=invoice.due_date,
             days_overdue=max((as_of - invoice.due_date).days, 0),
             supplier_name=DEMO_SUPPLIER.legal_name,
-            findings=get_findings(invoice_id, as_of=as_of),
+            findings=get_findings(invoice_id, as_of=as_of, org_id=org_id),
         ),
         channel=channel,
     )
 
 
 def build_artifact(
-    recommendation: ActionRecommendation, *, as_of: date = AS_OF
+    recommendation: ActionRecommendation,
+    *,
+    as_of: date = AS_OF,
+    org_id: str = DEFAULT_ORG_ID,
 ) -> ReminderDraft | TredsSubmission | EscalationDossier | None:
     """The artifact this recommendation's action produces (FR-011/012/013).
 
@@ -472,7 +540,7 @@ def build_artifact(
     reminder for. The gate lives inside each builder, not here — putting it in
     one place upstream would mean a new builder could quietly skip it.
     """
-    data = _load_portfolio()
+    data = _load_portfolio(org_id)
     invoice = next(
         (i for i in data.invoices if i.invoice_id == recommendation.invoice_id), None
     )
@@ -502,4 +570,4 @@ def build_artifact(
             as_of=as_of,
         )
 
-    return build_draft(invoice.invoice_id, as_of=as_of)
+    return build_draft(invoice.invoice_id, as_of=as_of, org_id=org_id)

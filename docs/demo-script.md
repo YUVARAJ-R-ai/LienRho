@@ -2,7 +2,13 @@
 
 Target: **3–4 minutes**. Rehearse aloud three times and time it (CP5).
 
-Setup before you present: backend + frontend running, browser on `http://localhost:3000`, and the four showcase invoices open in tabs so no step depends on typing a URL correctly under pressure.
+Setup before you present: backend + frontend running, **already signed in**
+(`demo@lienrho.local` / `lienrho-demo` — every screen is behind auth now), and the
+four showcase invoices open in tabs so no step depends on typing a URL correctly
+under pressure.
+
+Sign in *before* you start. The login screen is not part of the story, and
+fumbling a password in front of judges is a bad first twenty seconds.
 
 ---
 
@@ -99,11 +105,11 @@ The architecture claim is fully true today. Don't oversell the model and hand a 
 | | |
 |---|---|
 | Portfolio | ₹42.6L across 30 invoices |
-| Model | ROC-AUC **0.834**, ECE **0.031** (gate: ≥0.75, ≤0.10) |
-| Bucket accuracy | 62.3% vs 25% four-class baseline |
+| Model | ROC-AUC **0.834**, ECE **0.044** (gate: ≥0.75, ≤0.10) |
+| Bucket accuracy | 61.3% vs 25% four-class baseline |
 | Statutory interest, INV-1042 | ₹5,840.07 |
 | MSMED threshold | 45 days from the appointed day |
-| Tests | 157 passing |
+| Tests | 326 passing |
 
 **If asked "isn't 0.834 low?"** — that's the honest number. The first generator leaked the label and would have scored near-perfectly while learning nothing; delays now come from a multi-factor latent process and customer statistics are derived from observed history. See [`model-card.md`](model-card.md).
 
@@ -113,9 +119,10 @@ The architecture claim is fully true today. Don't oversell the model and hand a 
 
 | Symptom | Cause | Do this |
 |---|---|---|
-| Predictions all zero / flat | Model artifact missing | `uv run python -m app.ml_core.train` — it's gitignored |
+| Predictions all zero / flat | Model artifact missing | `uv run python -m app.ml_core.train` — it's gitignored. Check this *before* presenting: the app looks fine with a dead ML layer |
+| Bounced to `/login` mid-demo | Token expired (12h) | Sign in again; the queue is unaffected |
 | Screens error or hang | Backend down | `cd backend && ./run-dev.sh start`, check `/tmp/lienrho-api.log` |
-| Approvals reset | In-memory by design (#19) | Don't demo approval persistence |
+| Approvals reset on restart | API could not reach Postgres and fell back to memory | `curl localhost:8000/health` — if `auditStore.durable` is false, start Postgres and restart |
 | A page misbehaves | — | Fall back to a tagged checkpoint: `git checkout cp2-tool-boundary` |
 
 Have `/` and `/invoice/INV-1042` open in tabs before you start. If live navigation fails, the two screens that carry the story are already loaded.

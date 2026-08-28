@@ -5,7 +5,7 @@ description: Domain glossary, business rules, constraints, and coding convention
 
 # LIENRHO project context
 
-Derived from: `docs/inception.md` (updated 2026-08-15). If that file has since diverged from what's below, trust the file and update this skill in the same change.
+Derived from: `docs/inception.md` (updated 2026-08-15); state notes refreshed 2026-08-28. If that file has since diverged from what's below, trust the file and update this skill in the same change.
 
 Current implementation state per requirement: `docs/implementation-status.md`. Model metrics and limitations: `docs/model-card.md`. Demo sequencing and cutoffs: `docs/demo-checkpoints.md`.
 
@@ -86,6 +86,7 @@ Role ownership: **ML** = payment-delay model + cash forecast. **Backend/connecto
 
 - Full FR/NFR catalog, acceptance criteria, ADRs, open questions, assumptions register: `docs/inception.md`
 - What is actually built vs. specified: `docs/implementation-status.md`
-- Two things that look done but aren't: auth is a stubbed `X-Org-Id` header so NFR-001 does not hold yet, and the audit trail is in memory so it resets on restart
+- Two things that look done but aren't: the **Tally connector has never run against a live TallyPrime** (`ASM-01` — it is written to the documented XML gateway and fixture-tested, which proves the mapping and not the assumption), and the **agents select deterministically** because `llm_enabled` is off pending `OQ-02` (the LLM implementations exist and are the fallback's caller, not the other way round)
+- Resolved since the first draft of this skill, so don't repeat the old caveats: auth is real (org comes from a signed bearer token, not `X-Org-Id`), the audit trail and approvals are durable in Postgres, `frontend/src/lib/types.ts` is generated from the API's OpenAPI schema, and `POST /api/sync` persists a connector read into the canonical store (FR-001)
 - Open questions that affect design decisions before you build around them: OQ-01 (is outreach actually sent, or drafted-only?), OQ-02 (which LLM provider?), OQ-03 (is multi-org UI needed, or just the schema field?)
 - ID scheme if you add or change a requirement: `STK-nn / CON-nn / ASM-nn / FR-nnn / NFR-nnn / ADR-nnn / OQ-nn` — IDs are permanent, never renumber; mark dead ones `Status: Withdrawn` instead.
