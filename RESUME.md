@@ -74,6 +74,21 @@ Short version — the four showcase invoices in story order:
 | 5 | `/invoice/INV-1038` | TReDS-eligible → finances to close the shortfall |
 | 6 | `/forecast` | Shortfall date + the invoices driving it |
 
+## CP4 tool — ready, waiting on real Tally data
+
+```bash
+cd backend
+uv run python -m app.data.calibrate \
+  --invoices path/to/invoices.xml --payments path/to/payments.xml \
+  [--customers path/to/customers.xml] [--out calibration-report.md]
+```
+
+Takes a saved Tally Collection XML export (no live gateway needed). Every
+customer name/ID is pseudonymized before anything is computed or printed —
+safe to share or commit the output. Verified end-to-end against
+`tests/fixtures/tally/*.xml`; 22 tests in `test_sanitize.py` +
+`test_calibration.py`.
+
 ## Where things stand
 
 - Plan and cutoffs: [`docs/demo-checkpoints.md`](docs/demo-checkpoints.md)

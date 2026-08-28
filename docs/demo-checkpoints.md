@@ -70,6 +70,8 @@ Two rules make this work:
 
 ## CP4 — Real-data calibration *(optional, cuttable)*
 
+**Tool ready — waiting only on the export.** `uv run python -m app.data.calibrate --invoices X.xml --payments Y.xml [--customers Z.xml]` parses a Tally Collection XML export, pseudonymizes every customer (a fresh random hash per run, not just names — `customer_id` itself is the ledger name in Tally's export), and prints/writes a report comparing real delay statistics to the synthetic generator's assumptions. No live gateway needed — a saved export is enough.
+
 **Not retraining.** Compute real base rates and the actual delay distribution from sanitized invoices, then either tune the generator's profile constants to match or put the comparison on a slide.
 
 **Hard stop 6pm Monday.** Retraining the night before a demo is the highest-risk thing on this list; calibration is the version that cannot break anything.
