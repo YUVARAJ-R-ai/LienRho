@@ -276,3 +276,33 @@ def _add_days(value: date, days: int) -> date:
     from datetime import timedelta
 
     return value + timedelta(days=days)
+
+
+def join_payment_due_dates(
+    payments: list[CanonicalPayment], invoices: list[CanonicalInvoice]
+) -> list[CanonicalPayment]:
+    """Fill each payment's due date and days_delayed from its bill, in place.
+
+    A receipt voucher does not carry the bill's due date, and `days_delayed`
+    is the single most important field the delay model trains on. Shared
+    between `TallyConnector.get_payments` and `app.data.calibrate` so there is
+    one join, not two that can quietly drift apart — the calibration report
+    exists specifically to be trusted, so it can't run on a different
+    definition of "delayed" than the model does.
+
+    Returns the same list, mutated, for chaining convenience.
+    """
+    due_dates = {invoice.invoice_id: invoice.due_date for invoice in invoices}
+
+    for payment in payments:
+        due = due_dates.get(payment.invoice_id)
+        if due is None:
+            # Leave days_delayed None rather than computing it against the
+            # placeholder due date the parser used. A fabricated zero would
+            # enter the training set as an on-time payment.
+            continue
+        payment.due_date = due
+        if payment.actual_payment_date is not None:
+            payment.days_delayed = (payment.actual_payment_date - due).days
+
+    return payments

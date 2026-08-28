@@ -95,23 +95,7 @@ class TallyConnector(AccountingConnector):
             )
         )
         payments = parser.parse_payments(xml, org_id=org_id)
-
-        due_dates = {
-            invoice.invoice_id: invoice.due_date for invoice in self.get_invoices(org_id)
-        }
-
-        for payment in payments:
-            due = due_dates.get(payment.invoice_id)
-            if due is None:
-                # Leave days_delayed None rather than computing it against the
-                # placeholder due date the parser used. A fabricated zero would
-                # enter the training set as an on-time payment.
-                continue
-            payment.due_date = due
-            if payment.actual_payment_date is not None:
-                payment.days_delayed = (payment.actual_payment_date - due).days
-
-        return payments
+        return parser.join_payment_due_dates(payments, self.get_invoices(org_id))
 
     def get_expenses(self, org_id: str) -> list[dict]:
         from_date, to_date = self._window
